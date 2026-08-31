@@ -1,7 +1,7 @@
 apply_preset:
   target:
     entity:
-      integration: my_chihiros
+      integration: aqua_chihiros
       domain: light
   fields:
     preset:
@@ -20,7 +20,7 @@ apply_preset:
 set_rgbw:
   target:
     entity:
-      integration: my_chihiros
+      integration: aqua_chihiros
       domain: light
   fields:
     red:
@@ -39,7 +39,7 @@ set_rgbw:
 start_algae_protection:
   target:
     entity:
-      integration: my_chihiros
+      integration: aqua_chihiros
       domain: light
   fields:
     days:
@@ -50,11 +50,11 @@ start_algae_protection:
 emergency_off:
   target:
     entity:
-      integration: my_chihiros
+      integration: aqua_chihiros
       domain: light
 
 sync_time:
   target:
     entity:
-      integration: my_chihiros
+      integration: aqua_chihiros
       domain: light

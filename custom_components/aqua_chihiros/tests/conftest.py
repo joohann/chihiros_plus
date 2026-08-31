@@ -1,7 +1,7 @@
-"""Make ``my_chihiros`` importable as a package when running tests directly.
+"""Make ``aqua_chihiros`` importable as a package when running tests directly.
 
 Adds the ``custom_components`` directory (the package's parent) to sys.path so
-``import my_chihiros...`` resolves without Home Assistant installed.
+``import aqua_chihiros...`` resolves without Home Assistant installed.
 """
 from __future__ import annotations
 

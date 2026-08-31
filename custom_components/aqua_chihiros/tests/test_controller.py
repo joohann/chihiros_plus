@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 
-from my_chihiros.controller import Calibration, LightController
-from my_chihiros.protocol import RGBW
-from my_chihiros.transport import FakeTransport
-from my_chihiros.watchdog import Watchdog, WatchdogConfig
+from aqua_chihiros.controller import Calibration, LightController
+from aqua_chihiros.protocol import RGBW
+from aqua_chihiros.transport import FakeTransport
+from aqua_chihiros.watchdog import Watchdog, WatchdogConfig
 
 
 async def _no_sleep(_s: float) -> None:

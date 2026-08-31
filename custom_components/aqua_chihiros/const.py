@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Final
 
-DOMAIN: Final = "my_chihiros"
+DOMAIN: Final = "aqua_chihiros"
 
 # --- BLE transport (Nordic UART Service) ------------------------------------
 # Proven values, from TheMicDiet/chihiros-led-control docs/protocol.md.

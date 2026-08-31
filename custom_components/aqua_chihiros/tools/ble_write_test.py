@@ -10,7 +10,7 @@ each command is acknowledged by the lamp (our "confirmed" signal).
 
 Run it yourself in Terminal.app (needs macOS Bluetooth permission):
 
-    cd /Volumes/config/custom_components/my_chihiros/tools
+    cd /Volumes/config/custom_components/aqua_chihiros/tools
     ./.probe-venv/bin/pip install -q bleak   # if not already
     ./.probe-venv/bin/python ble_write_test.py
 
@@ -20,18 +20,18 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Make `my_chihiros` importable (custom_components is parents[2] of this file).
+# Make `aqua_chihiros` importable (custom_components is parents[2] of this file).
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
-from my_chihiros.const import (  # noqa: E402
+from aqua_chihiros.const import (  # noqa: E402
     CHANNEL_WHITE,
     UART_RX_CHAR_UUID,
     UART_SERVICE_UUID,
     UART_TX_CHAR_UUID,
 )
-from my_chihiros.protocol import (  # noqa: E402
+from aqua_chihiros.protocol import (  # noqa: E402
     RGBW,
     MessageIdCounter,
     enter_manual_mode,

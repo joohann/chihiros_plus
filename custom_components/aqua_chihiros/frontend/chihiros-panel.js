@@ -3,7 +3,7 @@
  *
  * A single sidebar view that shows the live light curve, current output,
  * program choice and per-lamp watchdog status for every configured Chihiros
- * lamp. It talks to the backend only through the my_chihiros/* websocket
+ * lamp. It talks to the backend only through the aqua_chihiros/* websocket
  * commands (see websocket.py) — it computes nothing itself.
  *
  * Design follows the approved mockup: calm single column, aqua accent, blended
@@ -118,7 +118,7 @@ class ChihirosPanel extends HTMLElement {
     if (!this._hass || this._loading) return;
     this._loading = true;
     try {
-      const res = await this._ws({ type: "my_chihiros/list_devices" });
+      const res = await this._ws({ type: "aqua_chihiros/list_devices" });
       this._devices = res.devices || [];
       // Group lamps by tank; lamps sharing a tank name are controlled together.
       this._tanks = {};
@@ -130,7 +130,7 @@ class ChihirosPanel extends HTMLElement {
       if (!this._selected || !this._tanks[this._selected]) this._selected = names[0] || null;
       const leader = this._leader();
       if (leader) {
-        this._curve = await this._ws({ type: "my_chihiros/get_curve", entry_id: leader.entry_id });
+        this._curve = await this._ws({ type: "aqua_chihiros/get_curve", entry_id: leader.entry_id });
       }
       this._render();
     } catch (err) {
@@ -161,7 +161,7 @@ class ChihirosPanel extends HTMLElement {
     this._render();
     this._toast(`Program → ${label}`);
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/set_program", entry_id: id, program }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_program", entry_id: id, program }));
       await this._awaitConfirm();  // shows "Applying…" until the lamps acknowledge
     } catch (err) {
       this._confirming = false;
@@ -175,7 +175,7 @@ class ChihirosPanel extends HTMLElement {
     this._busy = true;
     this._toast("Turning off…");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/emergency_off", entry_id: id }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/emergency_off", entry_id: id }));
       this._toast("Turned off", "ok");
     } catch (err) {
       this._toast("Turn off failed", "error");
@@ -190,7 +190,7 @@ class ChihirosPanel extends HTMLElement {
     this._busy = true;
     this._toast("Reconnecting…");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/reconnect", entry_id: id }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/reconnect", entry_id: id }));
       this._toast("Reconnect requested", "ok");
     } catch (err) {
       this._toast("Reconnect failed", "error");
@@ -203,7 +203,7 @@ class ChihirosPanel extends HTMLElement {
   async _setTank(entryId, tank) {
     this._lastInteraction = Date.now();
     try {
-      await this._ws({ type: "my_chihiros/set_tank", entry_id: entryId, tank });
+      await this._ws({ type: "aqua_chihiros/set_tank", entry_id: entryId, tank });
       this._selected = tank || this._selected;   // follow the lamp into its tank
       this._toast("Tank updated ✓", "ok");
     } catch (err) {
@@ -385,7 +385,7 @@ class ChihirosPanel extends HTMLElement {
     this._render();
     this._toast(enable ? "Maintenance — white 100%" : "Resuming program…");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/set_maintenance", entry_id: id, enable }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_maintenance", entry_id: id, enable }));
       await this._awaitConfirm();
     } catch (err) {
       this._confirming = false;
@@ -398,7 +398,7 @@ class ChihirosPanel extends HTMLElement {
     this._lastInteraction = Date.now();
     this._toast(enabled ? "Following the sun 🌇" : "Manual schedule");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/set_follow_sun", entry_id: id, enabled }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_follow_sun", entry_id: id, enabled }));
       await this._awaitConfirm();
     } catch (err) {
       this._toast("Could not change", "error");
@@ -410,7 +410,7 @@ class ChihirosPanel extends HTMLElement {
     this._lastInteraction = Date.now();
     this._toast("Updating schedule…");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/set_schedule", entry_id: id, ...params }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_schedule", entry_id: id, ...params }));
       this._toast("Schedule updated ✓", "ok");
       await this._awaitConfirm();
     } catch (err) {
@@ -479,7 +479,7 @@ class ChihirosPanel extends HTMLElement {
       if (t - lastSend >= 1000) {       // throttle BLE writes to ~1/s
         lastSend = t;
         const [r, g, b, w] = this._rgbwAt(minute);
-        this._fanout((id) => ({ type: "my_chihiros/set_rgbw", entry_id: id, r, g, b, w })).catch(() => {});
+        this._fanout((id) => ({ type: "aqua_chihiros/set_rgbw", entry_id: id, r, g, b, w })).catch(() => {});
       }
       if (frac < 1) this._playRAF = requestAnimationFrame(step);
       else this._finishPlay();
@@ -495,7 +495,7 @@ class ChihirosPanel extends HTMLElement {
     if (btn) btn.textContent = "▶ Preview on lamp";
     this._toast("Resuming program…");
     try {
-      await this._fanout((id) => ({ type: "my_chihiros/set_program", entry_id: id, program: this._playProgram }));
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_program", entry_id: id, program: this._playProgram }));
     } catch (err) { /* ignore */ }
     this._busy = false;
     await this._load();

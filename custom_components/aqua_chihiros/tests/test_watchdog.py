@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import asyncio
 
-from my_chihiros.protocol import MessageIdCounter, set_channel_brightness
-from my_chihiros.transport import FakeTransport
-from my_chihiros.watchdog import ConnectionState, Watchdog, WatchdogConfig
+from aqua_chihiros.protocol import MessageIdCounter, set_channel_brightness
+from aqua_chihiros.transport import FakeTransport
+from aqua_chihiros.watchdog import ConnectionState, Watchdog, WatchdogConfig
 
 
 class Clock:

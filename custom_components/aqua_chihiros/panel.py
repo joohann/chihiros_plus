@@ -24,7 +24,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 PANEL_URL_PATH = "chihiros"
-PANEL_TITLE = "Aquarium"
+PANEL_TITLE = "AquaChihiros"
 PANEL_ICON = "chihiros:dragon"  # custom brand dragon (frontend/chihiros-icons.js)
 STATIC_URL = "/chihiros_panel_files"
 FRONTEND_SCRIPT_URL = f"{STATIC_URL}/chihiros-panel.js"

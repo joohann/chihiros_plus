@@ -1,0 +1,116 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "bluetooth_confirm": {
+        "description": "Add the Chihiros aquarium light {name}?"
+      },
+      "user": {
+        "description": "Select a discovered Chihiros aquarium light.",
+        "data": {
+          "address": "Device"
+        }
+      }
+    },
+    "abort": {
+      "no_devices_found": "No unconfigured Chihiros lights found nearby. Make sure the light is powered, in range, and not connected to the My Chihiros app.",
+      "already_configured": "This light is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "connected": "Connected",
+          "degraded": "Degraded",
+          "reconnecting": "Reconnecting",
+          "offline": "Offline",
+          "error": "Error",
+          "unknown": "Unknown"
+        }
+      },
+      "program": { "name": "Program" },
+      "phase": {
+        "name": "Light phase",
+        "state": {
+          "dawn": "Dawn",
+          "sunrise": "Sunrise",
+          "morning": "Morning",
+          "peak": "Peak",
+          "afternoon": "Afternoon",
+          "sunset": "Sunset",
+          "dusk": "Dusk",
+          "moonlight": "Moonlight",
+          "night": "Night"
+        }
+      },
+      "unreachable_for": { "name": "Unreachable for" }
+    },
+    "binary_sensor": {
+      "bluetooth_connected": { "name": "Bluetooth connected" },
+      "state_confirmed": { "name": "Output confirmed" }
+    },
+    "select": {
+      "program": {
+        "name": "Program",
+        "state": {
+          "natural_day": "Natural Day",
+          "plant_growth": "Plant Growth",
+          "low_tech": "Low Tech",
+          "high_tech": "High Tech",
+          "moonlight": "Moonlight",
+          "algae_protection_early": "Algae Protection (early stage)",
+          "plant_recovery": "Plant Recovery"
+        }
+      }
+    },
+    "number": {
+      "red": { "name": "Red" },
+      "green": { "name": "Green" },
+      "blue": { "name": "Blue" },
+      "white": { "name": "White" }
+    },
+    "button": {
+      "sync_time": { "name": "Sync time" },
+      "refresh": { "name": "Refresh" },
+      "reconnect": { "name": "Reconnect" },
+      "maintenance": { "name": "Maintenance (white 100%)" },
+      "emergency_off": { "name": "Emergency off" }
+    }
+  },
+  "services": {
+    "apply_preset": {
+      "name": "Apply preset",
+      "description": "Switch the lamp to a built-in lighting program.",
+      "fields": {
+        "preset": { "name": "Preset", "description": "The program to activate." }
+      }
+    },
+    "set_rgbw": {
+      "name": "Set RGBW",
+      "description": "Set all four channels directly (manual mode).",
+      "fields": {
+        "red": { "name": "Red", "description": "Red channel 0-100%." },
+        "green": { "name": "Green", "description": "Green channel 0-100%." },
+        "blue": { "name": "Blue", "description": "Blue channel 0-100%." },
+        "white": { "name": "White", "description": "White channel 0-100%." }
+      }
+    },
+    "start_algae_protection": {
+      "name": "Start algae protection",
+      "description": "Temporarily run the algae-protection program, then revert.",
+      "fields": {
+        "days": { "name": "Days", "description": "How long before reverting to the previous program." }
+      }
+    },
+    "emergency_off": {
+      "name": "Emergency off",
+      "description": "Attempt to switch the lamp off immediately and report whether it was confirmed."
+    },
+    "sync_time": {
+      "name": "Sync time",
+      "description": "Push Home Assistant's local time to the lamp's internal clock."
+    }
+  }
+}

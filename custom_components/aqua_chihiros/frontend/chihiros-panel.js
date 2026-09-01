@@ -611,8 +611,8 @@ const STYLES = `
     gap:6px; height:52px; padding:0 6px;
     /* Follows the HA theme's app-header colours; a theme can override either the
        standard app-header vars or the panel-specific --aqua-chihiros-topbar-* ones. */
-    background:var(--aqua-chihiros-topbar-background, var(--app-header-background-color, var(--primary-color, #0a9d94)));
-    color:var(--aqua-chihiros-topbar-text, var(--app-header-text-color, #fff));
+    background:var(--aqua-chihiros-topbar-background, var(--app-header-background-color, #101a24));
+    color:var(--aqua-chihiros-topbar-text, var(--app-header-text-color, #eaf4f6));
     box-shadow:0 2px 4px rgba(0,0,0,.15); }
   .menubtn { border:0; background:transparent; color:inherit; cursor:pointer;
     width:44px; height:44px; border-radius:50%; display:grid; place-items:center; }

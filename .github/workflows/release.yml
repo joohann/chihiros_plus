@@ -1,13 +1,17 @@
 name: Publish release
 
-# Publishes a GitHub release whenever a version tag (v*) is pushed.
-# HACS shows updates based on published releases, so tagging a new version
-# here makes it appear in HACS.
+# Publishes a GitHub release so the new version shows up in HACS.
+# Two ways to trigger:
+#   - push a version tag (v*), or
+#   - run manually (workflow_dispatch): the version is read from
+#     custom_components/aqua_chihiros/manifest.json and the tag is created
+#     automatically at the current commit.
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,8 +21,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            v=$(python3 -c "import json;print(json.load(open('custom_components/aqua_chihiros/manifest.json'))['version'])")
+            echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }} — AquaChihiros
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }} — AquaChihiros
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true

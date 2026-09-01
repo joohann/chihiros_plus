@@ -58,7 +58,13 @@ class ChihirosPanel extends HTMLElement {
     this._previewRAF = null;
     this._playRAF = null;
     this._playing = false;
+    this._narrow = false;          // HA sets this true on mobile/narrow layouts
     this._collapsed = { schedule: true, tanks: true };   // compact by default
+  }
+
+  set narrow(value) {
+    this._narrow = !!value;
+    if (this._built) this._syncTopbar();
   }
 
   _sleep(ms) {
@@ -215,16 +221,36 @@ class ChihirosPanel extends HTMLElement {
   // -- rendering ------------------------------------------------------------
   _build() {
     this.shadowRoot.innerHTML =
-      `<style>${STYLES}</style><div id="root"></div><div id="toast" class="toast"></div>`;
+      `<style>${STYLES}</style><div id="topbar"></div><div id="root"></div><div id="toast" class="toast"></div>`;
+    this._syncTopbar();
+  }
+
+  // On mobile (HA sets `narrow`), a custom panel has no HA header, so there's
+  // no way back to the sidebar. Render our own top bar with a menu button that
+  // opens the HA sidebar via the standard hass-toggle-menu event.
+  _syncTopbar() {
+    const bar = this.shadowRoot.getElementById("topbar");
+    if (!bar) return;
+    if (!this._narrow) { bar.innerHTML = ""; return; }
+    bar.innerHTML =
+      `<button id="menu" class="menubtn" aria-label="Open Home Assistant menu">
+         <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+       </button>
+       <span class="tbtitle">AquaChihiros</span>`;
+    const m = this.shadowRoot.getElementById("menu");
+    if (m) m.addEventListener("click", () =>
+      this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true })));
   }
 
   _renderError(err) {
+    this._syncTopbar();
     this.shadowRoot.getElementById("root").innerHTML =
       `<div class="card"><p class="muted">Could not reach the Chihiros integration.</p>
        <p class="mono">${(err && err.message) || err}</p></div>`;
   }
 
   _render() {
+    this._syncTopbar();
     const root = this.shadowRoot.getElementById("root");
     if (!this._devices.length) {
       root.innerHTML = `<div class="pagehead"><div class="eyebrow">Aquarium light</div>
@@ -581,6 +607,15 @@ function esc(s) {
 
 const STYLES = `
   :host { --chihiros-accent:#0a9d94; display:block; }
+  #topbar:not(:empty) { position:sticky; top:0; z-index:5; display:flex; align-items:center;
+    gap:6px; height:52px; padding:0 6px;
+    background:var(--app-header-background-color, var(--primary-color, #0a9d94));
+    color:var(--app-header-text-color, #fff);
+    box-shadow:0 2px 4px rgba(0,0,0,.15); }
+  .menubtn { border:0; background:transparent; color:inherit; cursor:pointer;
+    width:44px; height:44px; border-radius:50%; display:grid; place-items:center; }
+  .menubtn:hover { background:rgba(255,255,255,.12); }
+  .tbtitle { font-size:18px; font-weight:600; }
   #root { max-width:640px; margin:0 auto; padding:26px 18px 48px;
     color:var(--primary-text-color); font-family:var(--paper-font-body1_-_font-family, sans-serif); }
   .pagehead { display:flex; align-items:center; justify-content:space-between; gap:12px; }

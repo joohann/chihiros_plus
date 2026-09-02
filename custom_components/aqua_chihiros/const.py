@@ -26,11 +26,13 @@ UART_TX_CHAR_UUID: Final = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # lamp -> HA 
 # the name prefix is a secondary hint used to guess the model.
 #   DYSL...   -> WRGB II Slim  (CONFIRMED on real hardware: "DYSL30D6469AAA95ED")
 #   DYSIL...  -> WRGB II Slim  (reported variant, e.g. "DYSILNF5EOACC1EC37")
+#   DYWPRO... -> WRGB II Pro   (CONFIRMED on real hardware: "DYWPRO60C7B9B48D9C20")
 # All Chihiros units seen so far share the "DY" family prefix; extend the map
 # as more models are verified.
 KNOWN_NAME_PREFIXES: Final[dict[str, str]] = {
     "DYSL": "wrgb_ii_slim",
     "DYSIL": "wrgb_ii_slim",
+    "DYWPRO": "wrgb_ii_pro",
 }
 # Broad family prefix — used together with the UART service to decide a device
 # is "probably Chihiros" during discovery, even for an unmapped model.

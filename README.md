@@ -61,6 +61,7 @@ not just a "Bluetooth remote for a lamp":
 | Model | Status |
 |---|---|
 | Chihiros **WRGB II Slim** | ✅ Verified on real hardware |
+| Chihiros **WRGB II Pro** | ✅ Verified on real hardware |
 
 The architecture is model-generic (device abstraction + capability registry),
 so more Chihiros models can be added once their behaviour is verified. If you

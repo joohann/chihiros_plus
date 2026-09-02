@@ -36,6 +36,12 @@ _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=30)
 
+# Default aquarium photoperiod when following the sun and the user hasn't set a
+# day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
+# an aquarium and promotes algae; 6–8 h is the usual recommendation, so we
+# default to a conservative 8 h ending at the real sunset.
+DEFAULT_PHOTOPERIOD_MINUTES = 8 * 60
+
 MODE_PROGRAM = "program"
 MODE_MANUAL = "manual"
 MODE_OFF = "off"
@@ -84,7 +90,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.controller = LightController(
             entry.title, self.watchdog, calibration=calibration
         )
-        self._program_key = "natural_day"
+        # Restore the last selected program from the entry options so a reload
+        # or restart keeps it (BLE can't read the program back from the lamp).
+        self._program_key = entry.options.get("program", "natural_day")
         # User overrides (start_minute / day_length_minutes) applied on top of
         # whichever preset is selected; persisted in the config entry options.
         self._overrides: dict[str, int] = dict(entry.options.get("overrides", {}))
@@ -134,8 +142,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 # Anchor the END to the real sunset; the day length is the
                 # user's if set (adjust from the front), else the natural
                 # sunrise->sunset span. Start = sunset - length.
-                natural = sun["sunset"] - sun["sunrise"]
-                length = self._overrides.get("day_length_minutes") or natural
+                length = self._overrides.get("day_length_minutes") or DEFAULT_PHOTOPERIOD_MINUTES
                 length = max(1, min(1440, int(length)))
                 start = sun["sunset"] - length
                 if start < 0:
@@ -160,6 +167,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._program_key = key
         self._rebuild_engine()
         self._mode = MODE_PROGRAM
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "program": key}
+        )
         await self.async_request_refresh()
 
     async def async_set_schedule(

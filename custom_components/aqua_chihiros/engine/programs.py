@@ -55,8 +55,8 @@ def _hm(hour: int, minute: int = 0) -> int:
 
 NATURAL_DAY = ProgramParameters(
     name="Natural Day",
-    start_minute=_hm(7),
-    day_length_minutes=10 * 60,
+    start_minute=_hm(8),
+    day_length_minutes=8 * 60,
     sunrise_minutes=60,
     sunset_minutes=60,
     max_intensity=80,

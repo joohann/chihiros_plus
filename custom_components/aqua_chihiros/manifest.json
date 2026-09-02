@@ -2,17 +2,36 @@
   "domain": "aqua_chihiros",
   "name": "AquaChihiros",
   "bluetooth": [
-    { "service_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e" },
-    { "local_name": "DYSL*" },
-    { "local_name": "DYSIL*" }
+    {
+      "service_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    },
+    {
+      "local_name": "DYSL*"
+    },
+    {
+      "local_name": "DYSIL*"
+    },
+    {
+      "local_name": "DYWPRO*"
+    }
   ],
-  "codeowners": ["@joohann"],
+  "codeowners": [
+    "@joohann"
+  ],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters", "frontend", "http", "panel_custom", "websocket_api"],
+  "dependencies": [
+    "bluetooth_adapters",
+    "frontend",
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/joohann/aqua_chihiros",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/joohann/aqua_chihiros/issues",
-  "requirements": ["bleak-retry-connector>=3.5.0"],
-  "version": "0.3.4"
+  "requirements": [
+    "bleak-retry-connector>=3.5.0"
+  ],
+  "version": "0.4.0"
 }

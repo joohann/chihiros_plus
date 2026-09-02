@@ -105,6 +105,7 @@ class ChihirosPanel extends HTMLElement {
   }
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
+    clearTimeout(this._retryTimer);
   }
 
   async _ws(msg) {
@@ -123,6 +124,7 @@ class ChihirosPanel extends HTMLElement {
   async _load() {
     if (!this._hass || this._loading) return;
     this._loading = true;
+    clearTimeout(this._retryTimer);   // a fresh load supersedes any pending retry
     try {
       const res = await this._ws({ type: "aqua_chihiros/list_devices" });
       this._devices = res.devices || [];
@@ -242,11 +244,29 @@ class ChihirosPanel extends HTMLElement {
       this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true })));
   }
 
+  _errText(err) {
+    if (!err) return "";
+    if (typeof err === "string") return err;
+    if (err.message) return err.message;
+    if (err.error) return err.error;
+    if (err.code) return "code: " + err.code;
+    try { return JSON.stringify(err); } catch (e) { return String(err); }
+  }
+
+  // Not a hard error: the integration may still be starting up (after a
+  // restart/reload). Show a calm "connecting" state and retry automatically.
   _renderError(err) {
     this._syncTopbar();
+    const detail = this._errText(err);
     this.shadowRoot.getElementById("root").innerHTML =
-      `<div class="card"><p class="muted">Could not reach the Chihiros integration.</p>
-       <p class="mono">${(err && err.message) || err}</p></div>`;
+      `<div class="pagehead"><div class="eyebrow">Aquarium light</div><h1>AquaChihiros</h1></div>
+       <section class="card">
+         <div class="confirm pending"><span class="spin"></span>Connecting to AquaChihiros…</div>
+         <p class="muted" style="margin:10px 0 0;font-size:12.5px">The integration may still be starting up. Retrying…</p>
+         ${detail ? `<p class="mono" style="font-size:11px;color:var(--ink-3);margin-top:8px">${detail}</p>` : ""}
+       </section>`;
+    clearTimeout(this._retryTimer);
+    this._retryTimer = setTimeout(() => this._load(), 3000);
   }
 
   _render() {

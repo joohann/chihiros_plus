@@ -25,6 +25,8 @@ const PROGRAM_GROUPS = [
   ]],
 ];
 const PROGRAMS = PROGRAM_GROUPS.flatMap(([, items]) => items);
+// Programs that can be run as a bounded treatment -> default number of days.
+const TREATMENTS = { blackout: 3, algae_protection_early: 7 };
 const CH = [["R", "#e23d55"], ["G", "#2fae54"], ["B", "#3f7fe0"], ["W", "#b79a3f"]];
 const CONN_LABEL = {
   connected: "Connected", degraded: "Degraded", reconnecting: "Reconnecting",
@@ -303,6 +305,19 @@ class ChihirosPanel extends HTMLElement {
         ${dev.rssi != null ? `<span class="dot">•</span><span class="mono">${dev.rssi} dBm</span>` : ""}
       </div>
 
+      ${dev.treatment ? `
+      <section class="card treatment">
+        <div class="trow">
+          <span class="tmark">🩹</span>
+          <div class="tinfo">
+            <b>${esc(dev.treatment.name)} treatment active</b>
+            <span class="muted">Day ${dev.treatment.day} of ${dev.treatment.total_days} · then reverts to ${esc(dev.treatment.revert_to)}</span>
+          </div>
+          <button class="btn small" id="stoptreat">Stop</button>
+        </div>
+        <div class="tbar"><span style="width:${Math.round((dev.treatment.progress || 0) * 100)}%"></span></div>
+      </section>` : ""}
+
       <section class="card">
         <div class="curvehead">
           <span class="ct" id="pv-title">Today · ${esc(dev.program_name)}</span>
@@ -322,7 +337,7 @@ class ChihirosPanel extends HTMLElement {
 
       <section class="card">
         <div class="proghead" data-collapse="program">
-          <span class="cur"><small>Program</small><b>${esc(dev.program_name)}</b></span>
+          <b class="curname">${esc(dev.program_name)}</b>
           <span class="chev">${this._collapsed.program ? "▸" : "▾"}</span>
         </div>
         <div class="progopts" ${this._collapsed.program ? "hidden" : ""}>
@@ -332,6 +347,13 @@ class ChihirosPanel extends HTMLElement {
               ${items.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
             </div>`).join("")}
         </div>
+        ${TREATMENTS[dev.program_key] && !dev.treatment ? `
+          <div class="treatstart">
+            <span class="muted">Run as timed treatment:</span>
+            <input type="number" id="treatdays" min="1" max="14" value="${TREATMENTS[dev.program_key]}">
+            <span class="muted">days</span>
+            <button class="btn small" id="starttreat">▶ Start</button>
+          </div>` : ""}
         <div class="collhead" data-collapse="schedule">
           <span>Schedule &amp; timing</span>
           <span class="chev">${this._collapsed.schedule ? "▸" : "▾"}</span>
@@ -403,6 +425,14 @@ class ChihirosPanel extends HTMLElement {
     const maint = this.shadowRoot.getElementById("maint");
     if (maint) maint.addEventListener("click", () => this._setMaintenance(!this._dev().maintenance));
 
+    const startTreat = this.shadowRoot.getElementById("starttreat");
+    if (startTreat) startTreat.addEventListener("click", () => {
+      const days = parseFloat(this.shadowRoot.getElementById("treatdays").value) || 3;
+      this._startTreatment(this._dev().program_key, days);
+    });
+    const stopTreat = this.shadowRoot.getElementById("stoptreat");
+    if (stopTreat) stopTreat.addEventListener("click", () => this._stopTreatment());
+
     this.shadowRoot.querySelectorAll("[data-collapse]").forEach((h) =>
       h.addEventListener("click", () => {
         const key = h.dataset.collapse;
@@ -429,6 +459,24 @@ class ChihirosPanel extends HTMLElement {
     }
 
     this._drawCurve();
+  }
+
+  async _startTreatment(program, days) {
+    this._lastInteraction = Date.now();
+    this._toast(`Starting treatment (${days} days)…`);
+    try {
+      await this._fanout((id) => ({ type: "aqua_chihiros/start_treatment", entry_id: id, program, days }));
+    } catch (err) { this._toast("Could not start treatment", "error"); }
+    await this._load();
+  }
+
+  async _stopTreatment() {
+    this._lastInteraction = Date.now();
+    this._toast("Stopping treatment…");
+    try {
+      await this._fanout((id) => ({ type: "aqua_chihiros/stop_treatment", entry_id: id }));
+    } catch (err) { this._toast("Could not stop", "error"); }
+    await this._load();
   }
 
   async _setMaintenance(enable) {
@@ -719,12 +767,23 @@ const STYLES = `
   .grouplbl:first-of-type { margin-top:4px; }
   .proghead { display:flex; align-items:center; justify-content:space-between;
     cursor:pointer; user-select:none; }
-  .proghead .cur { display:flex; flex-direction:column; }
-  .proghead .cur small { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
-    color:var(--secondary-text-color); font-weight:600; }
-  .proghead .cur b { font-weight:600; font-size:16px; }
+  .proghead .curname { font-weight:600; font-size:17px; }
   .proghead .chev { color:var(--secondary-text-color); font-size:12px; }
-  .progopts { margin-top:12px; }
+  .progopts { margin-top:14px; }
+  .treatstart { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;
+    padding-top:14px; border-top:1px solid var(--divider-color); font-size:13px; }
+  .treatstart input { width:56px; font:inherit; padding:6px 8px; border-radius:8px;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); }
+  .btn.small { flex:none; padding:8px 14px; font-size:13px; }
+  .card.treatment { border-color:color-mix(in srgb, var(--warning-color,#d9971f) 55%, var(--divider-color));
+    background:color-mix(in srgb, var(--warning-color,#d9971f) 10%, var(--card-background-color)); }
+  .trow { display:flex; align-items:center; gap:12px; }
+  .tmark { font-size:22px; flex:none; }
+  .tinfo { flex:1; display:flex; flex-direction:column; }
+  .tinfo b { font-size:14px; }
+  .tbar { height:6px; border-radius:6px; background:var(--secondary-background-color); margin-top:12px; overflow:hidden; }
+  .tbar span { display:block; height:100%; background:var(--warning-color,#d9971f); border-radius:6px; }
   .collhead { display:flex; align-items:center; justify-content:space-between;
     margin-top:16px; padding-top:14px; border-top:1px solid var(--divider-color);
     cursor:pointer; font-size:13px; font-weight:600; color:var(--primary-text-color);

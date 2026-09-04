@@ -108,6 +108,13 @@
         "days": { "name": "Days", "description": "How long before reverting to the previous program." }
       }
     },
+    "start_blackout": {
+      "name": "Start blackout",
+      "description": "Turn the light fully off for a number of days as an algae/cyanobacteria treatment, then automatically revert to the previous program. Supporting measure, not a cure — it also stresses plants.",
+      "fields": {
+        "days": { "name": "Days", "description": "How long to keep the light off before reverting (default 3)." }
+      }
+    },
     "emergency_off": {
       "name": "Emergency off",
       "description": "Attempt to switch the lamp off immediately and report whether it was confirmed."

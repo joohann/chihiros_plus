@@ -59,9 +59,13 @@
           "plant_growth": "Plant Growth",
           "low_tech": "Low Tech",
           "high_tech": "High Tech",
+          "siesta": "Siesta",
+          "cloudy_day": "Cloudy Day",
+          "plant_recovery": "Plant Recovery",
           "moonlight": "Moonlight",
+          "vacation": "Vacation",
           "algae_protection_early": "Algae Protection (early stage)",
-          "plant_recovery": "Plant Recovery"
+          "blackout": "Blackout"
         }
       }
     },

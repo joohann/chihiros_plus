@@ -143,12 +143,73 @@ PLANT_RECOVERY = ProgramParameters(
     moonlight_minutes=60,
 )
 
+# Split photoperiod with a real midday break — an established way to limit algae
+# and give CO2 a chance to recover. Morning + pause + evening block.
+SIESTA = ProgramParameters(
+    name="Siesta",
+    start_minute=_hm(9),
+    day_length_minutes=10 * 60,      # 09:00 -> 19:00, with a pause in the middle
+    sunrise_minutes=45,
+    sunset_minutes=45,
+    max_intensity=75,
+    peak_color=RGBW(r=70, g=60, b=75, w=40),
+    moonlight_intensity=3,
+    moonlight_minutes=90,
+    midday_pause=MiddayPause(start_minute=_hm(13), duration_minutes=180, intensity=0),
+)
+
+# Away from home: a short, dim day — less algae and evaporation while plants tick
+# over.
+VACATION = ProgramParameters(
+    name="Vacation",
+    start_minute=_hm(10),
+    day_length_minutes=6 * 60,
+    sunrise_minutes=60,
+    sunset_minutes=60,
+    max_intensity=40,
+    peak_color=RGBW(r=40, g=35, b=45, w=20),
+    moonlight_intensity=0,
+    moonlight_minutes=0,
+)
+
+# An overcast day: a gentle, low-intensity variation.
+CLOUDY_DAY = ProgramParameters(
+    name="Cloudy Day",
+    start_minute=_hm(8),
+    day_length_minutes=8 * 60,
+    sunrise_minutes=75,              # soft, slow ramps
+    sunset_minutes=75,
+    max_intensity=45,
+    peak_color=RGBW(r=40, g=45, b=55, w=25),   # slightly cooler/greyer
+    moonlight_intensity=3,
+    moonlight_minutes=60,
+)
+
+# Total darkness — a temporary treatment for algae / cyanobacteria outbreaks.
+# Best run for a bounded number of days and then reverted (supporting measure,
+# not a cure; it stresses plants).
+BLACKOUT = ProgramParameters(
+    name="Blackout",
+    start_minute=0,
+    day_length_minutes=1,
+    sunrise_minutes=0,
+    sunset_minutes=0,
+    max_intensity=0,
+    peak_color=RGBW(),
+    moonlight_intensity=0,
+    moonlight_minutes=0,
+)
+
 PRESETS: dict[str, ProgramParameters] = {
     "natural_day": NATURAL_DAY,
     "plant_growth": PLANT_GROWTH,
     "low_tech": LOW_TECH,
     "high_tech": HIGH_TECH,
-    "moonlight": MOONLIGHT,
-    "algae_protection_early": ALGAE_PROTECTION_EARLY,
+    "siesta": SIESTA,
+    "cloudy_day": CLOUDY_DAY,
     "plant_recovery": PLANT_RECOVERY,
+    "moonlight": MOONLIGHT,
+    "vacation": VACATION,
+    "algae_protection_early": ALGAE_PROTECTION_EARLY,
+    "blackout": BLACKOUT,
 }

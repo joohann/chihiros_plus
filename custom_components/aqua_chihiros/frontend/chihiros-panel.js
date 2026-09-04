@@ -10,27 +10,21 @@
  * with the active Home Assistant theme. No second sidebar — this renders in the
  * main content area of HA's existing sidebar entry.
  */
-const PROGRAMS = [
-  ["natural_day", "Natural Day"],
-  ["plant_growth", "Plant Growth"],
-  ["low_tech", "Low Tech"],
-  ["high_tech", "High Tech"],
-  ["moonlight", "Moonlight"],
-  ["algae_protection_early", "Algae Protection"],
-  ["plant_recovery", "Plant Recovery"],
+// Programs grouped by purpose. The flat PROGRAMS list is derived for lookups.
+const PROGRAM_GROUPS = [
+  ["🌱 Daily", [
+    ["natural_day", "Natural Day"], ["plant_growth", "Plant Growth"],
+    ["low_tech", "Low Tech"], ["high_tech", "High Tech"],
+    ["siesta", "Siesta"], ["cloudy_day", "Cloudy Day"],
+    ["plant_recovery", "Plant Recovery"],
+  ]],
+  ["🌙 Night", [["moonlight", "Moonlight"]]],
+  ["🧳 Away", [["vacation", "Vacation"]]],
+  ["⬛ Treatments", [
+    ["algae_protection_early", "Algae Protection"], ["blackout", "Blackout"],
+  ]],
 ];
-// Programs grouped by whether they include a night moonlight phase.
-const WITH_MOON = [
-  ["natural_day", "Natural Day"],
-  ["low_tech", "Low Tech"],
-  ["plant_recovery", "Plant Recovery"],
-  ["moonlight", "Moonlight"],
-];
-const WITHOUT_MOON = [
-  ["plant_growth", "Plant Growth"],
-  ["high_tech", "High Tech"],
-  ["algae_protection_early", "Algae Protection"],
-];
+const PROGRAMS = PROGRAM_GROUPS.flatMap(([, items]) => items);
 const CH = [["R", "#e23d55"], ["G", "#2fae54"], ["B", "#3f7fe0"], ["W", "#b79a3f"]];
 const CONN_LABEL = {
   connected: "Connected", degraded: "Degraded", reconnecting: "Reconnecting",
@@ -59,7 +53,7 @@ class ChihirosPanel extends HTMLElement {
     this._playRAF = null;
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
-    this._collapsed = { schedule: true, tanks: true };   // compact by default
+    this._collapsed = { program: true, schedule: true, tanks: true };  // compact by default
   }
 
   set narrow(value) {
@@ -135,7 +129,12 @@ class ChihirosPanel extends HTMLElement {
         (this._tanks[t] = this._tanks[t] || []).push(d);
       }
       const names = Object.keys(this._tanks);
-      if (!this._selected || !this._tanks[this._selected]) this._selected = names[0] || null;
+      if (!this._selected || !this._tanks[this._selected]) {
+        // Restore the last-selected tank (per browser); fall back to the first.
+        let remembered = null;
+        try { remembered = localStorage.getItem("aqua_chihiros_tank"); } catch (e) { /* ignore */ }
+        this._selected = (remembered && this._tanks[remembered]) ? remembered : (names[0] || null);
+      }
       const leader = this._leader();
       if (leader) {
         this._curve = await this._ws({ type: "aqua_chihiros/get_curve", entry_id: leader.entry_id });
@@ -165,6 +164,7 @@ class ChihirosPanel extends HTMLElement {
     const label = (PROGRAMS.find((p) => p[0] === program) || [null, program])[1];
     // Optimistic: highlight every lamp in the tank + "applying" immediately.
     this._members().forEach((d) => { d.program_key = program; d.program_name = label; });
+    this._collapsed.program = true;   // collapse back to show just the active one
     this._confirming = true;
     this._render();
     this._toast(`Program → ${label}`);
@@ -321,14 +321,16 @@ class ChihirosPanel extends HTMLElement {
       </section>
 
       <section class="card">
-        <div class="lbl">Program</div>
-        <div class="grouplbl">🌙 With moonlight</div>
-        <div class="progs">
-          ${WITH_MOON.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
+        <div class="proghead" data-collapse="program">
+          <span class="cur"><small>Program</small><b>${esc(dev.program_name)}</b></span>
+          <span class="chev">${this._collapsed.program ? "▸" : "▾"}</span>
         </div>
-        <div class="grouplbl">🌑 Dark night</div>
-        <div class="progs">
-          ${WITHOUT_MOON.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
+        <div class="progopts" ${this._collapsed.program ? "hidden" : ""}>
+          ${PROGRAM_GROUPS.map(([label, items]) => `
+            <div class="grouplbl">${label}</div>
+            <div class="progs">
+              ${items.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
+            </div>`).join("")}
         </div>
         <div class="collhead" data-collapse="schedule">
           <span>Schedule &amp; timing</span>
@@ -385,7 +387,11 @@ class ChihirosPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-prog]").forEach((b) =>
       b.addEventListener("click", () => this._setProgram(b.dataset.prog)));
     this.shadowRoot.querySelectorAll("[data-sel]").forEach((b) =>
-      b.addEventListener("click", () => { this._selected = b.dataset.sel; this._load(); }));
+      b.addEventListener("click", () => {
+        this._selected = b.dataset.sel;
+        try { localStorage.setItem("aqua_chihiros_tank", this._selected); } catch (e) { /* ignore */ }
+        this._load();
+      }));
     const offBtn = this.shadowRoot.getElementById("off");
     if (offBtn) offBtn.addEventListener("click", () => this._emergencyOff());
     const rc = this.shadowRoot.getElementById("reconnect");
@@ -711,6 +717,14 @@ const STYLES = `
   .grouplbl { font-size:11px; letter-spacing:.04em; color:var(--secondary-text-color);
     margin:14px 0 8px; font-weight:600; }
   .grouplbl:first-of-type { margin-top:4px; }
+  .proghead { display:flex; align-items:center; justify-content:space-between;
+    cursor:pointer; user-select:none; }
+  .proghead .cur { display:flex; flex-direction:column; }
+  .proghead .cur small { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--secondary-text-color); font-weight:600; }
+  .proghead .cur b { font-weight:600; font-size:16px; }
+  .proghead .chev { color:var(--secondary-text-color); font-size:12px; }
+  .progopts { margin-top:12px; }
   .collhead { display:flex; align-items:center; justify-content:space-between;
     margin-top:16px; padding-top:14px; border-top:1px solid var(--divider-color);
     cursor:pointer; font-size:13px; font-weight:600; color:var(--primary-text-color);

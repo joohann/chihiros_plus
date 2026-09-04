@@ -13,9 +13,13 @@ apply_preset:
             - plant_growth
             - low_tech
             - high_tech
-            - moonlight
-            - algae_protection_early
+            - siesta
+            - cloudy_day
             - plant_recovery
+            - moonlight
+            - vacation
+            - algae_protection_early
+            - blackout
 
 set_rgbw:
   target:

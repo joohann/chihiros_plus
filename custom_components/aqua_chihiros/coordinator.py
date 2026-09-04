@@ -108,6 +108,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._apply_task = None
         self._maintenance = False
         self._pending: tuple[Phase, RGBW] = (Phase.NIGHT, RGBW(0, 0, 0, 0))
+        # Active timed treatment (Blackout / Algae Protection for N days), if
+        # any. Persisted in options so it survives restarts.
+        self._treatment: dict | None = entry.options.get("treatment")
+        if self._treatment:
+            self._restore_treatment()
 
     # -- program / mode control ---------------------------------------------
 
@@ -163,13 +168,14 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if key not in PRESETS:
             raise ValueError(f"unknown program '{key}'")
         self._cancel_revert()
+        self._treatment = None          # a manual program choice ends any treatment
         self._maintenance = False
         self._program_key = key
         self._rebuild_engine()
         self._mode = MODE_PROGRAM
-        self.hass.config_entries.async_update_entry(
-            self.entry, options={**self.entry.options, "program": key}
-        )
+        opts = {**self.entry.options, "program": key}
+        opts.pop("treatment", None)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
         await self.async_request_refresh()
 
     async def async_set_schedule(
@@ -235,24 +241,74 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         await self.async_request_refresh()
 
     async def async_start_temporary_program(self, key: str, days: float) -> None:
-        """Run a program for a bounded time, then revert to the previous one.
+        """Run a program as a timed treatment, then auto-revert.
 
-        Used by e.g. Algae Protection: activate for 7 days then automatically
-        restore the prior program. The previous program is remembered so the
-        revert is deterministic even across the timer.
+        Used by Blackout / Algae Protection: activate for N days then
+        automatically restore the program that was active before. The treatment
+        (program, start time, duration, revert target) is persisted in the entry
+        options, so the countdown and auto-revert survive a restart.
         """
-        if self._mode == MODE_PROGRAM:
-            self._previous_program_key = self._program_key
-        await self.async_set_program(key)
+        if key not in PRESETS:
+            raise ValueError(f"unknown program '{key}'")
+        revert_to = (
+            self._treatment["revert_to"]
+            if self._treatment
+            else (self._program_key if self._mode == MODE_PROGRAM else "natural_day")
+        )
+        self._treatment = {
+            "program": key,
+            "started": dt_util.utcnow().isoformat(),
+            "days": float(days),
+            "revert_to": revert_to,
+        }
+        self._maintenance = False
+        self._program_key = key
+        self._rebuild_engine()
+        self._mode = MODE_PROGRAM
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={**self.entry.options, "program": key, "treatment": self._treatment},
+        )
+        self._schedule_revert(days * 86400)
+        await self.async_request_refresh()
+
+    def _schedule_revert(self, seconds: float) -> None:
+        self._cancel_revert()
 
         @callback
         def _revert(_now) -> None:
             self._revert_cancel = None
-            prev = self._previous_program_key or "natural_day"
-            self.hass.async_create_task(self.async_set_program(prev))
+            self.hass.async_create_task(self.async_stop_treatment())
 
+        self._revert_cancel = async_call_later(self.hass, max(1.0, seconds), _revert)
+
+    def _restore_treatment(self) -> None:
+        """After a restart, resume the countdown (or revert if already over)."""
+        started = dt_util.parse_datetime(self._treatment.get("started", ""))
+        if started is None:
+            self._treatment = None
+            return
+        remaining = self._treatment["days"] * 86400 - (
+            dt_util.utcnow() - started
+        ).total_seconds()
+        self._program_key = self._treatment["program"]
+        if remaining <= 0:
+            self.hass.async_create_task(self.async_stop_treatment())
+        else:
+            self._schedule_revert(remaining)
+
+    async def async_stop_treatment(self) -> None:
+        """End the treatment now and revert to the remembered program."""
+        if not self._treatment:
+            return
+        revert_to = self._treatment.get("revert_to", "natural_day")
+        self._treatment = None
         self._cancel_revert()
-        self._revert_cancel = async_call_later(self.hass, days * 86400, _revert)
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={k: v for k, v in self.entry.options.items() if k != "treatment"},
+        )
+        await self.async_set_program(revert_to if revert_to in PRESETS else "natural_day")
 
     def _cancel_revert(self) -> None:
         if self._revert_cancel is not None:
@@ -378,12 +434,33 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "day_length_minutes": self._program.day_length_minutes,
             "follow_sun": self._follow_sun,
             "maintenance": self._maintenance,
+            "treatment": self._treatment_snapshot(),
             "desired": list(d.desired.as_tuple()),
             "confirmed": list(d.confirmed.as_tuple()) if d.confirmed else None,
             "is_confirmed": d.is_confirmed,
             "connection": d.connection.value,
             "rssi": d.rssi,
             "seconds_since_success": d.seconds_since_success,
+        }
+
+    @callback
+    def _treatment_snapshot(self) -> dict | None:
+        """Timed-treatment status for the panel: which day of how many."""
+        if not self._treatment:
+            return None
+        started = dt_util.parse_datetime(self._treatment.get("started", ""))
+        total = float(self._treatment["days"])
+        elapsed_days = (
+            (dt_util.utcnow() - started).total_seconds() / 86400 if started else 0.0
+        )
+        program = PRESETS.get(self._treatment["program"])
+        revert = PRESETS.get(self._treatment.get("revert_to", "natural_day"), NATURAL_DAY)
+        return {
+            "name": program.name if program else self._treatment["program"],
+            "day": min(int(total) if total >= 1 else 1, int(elapsed_days) + 1),
+            "total_days": total,
+            "revert_to": revert.name,
+            "progress": max(0.0, min(1.0, elapsed_days / total)) if total else 1.0,
         }
 
     @callback

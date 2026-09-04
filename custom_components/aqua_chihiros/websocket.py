@@ -30,6 +30,8 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_follow_sun)
     websocket_api.async_register_command(hass, ws_set_maintenance)
     websocket_api.async_register_command(hass, ws_set_tank)
+    websocket_api.async_register_command(hass, ws_start_treatment)
+    websocket_api.async_register_command(hass, ws_stop_treatment)
     websocket_api.async_register_command(hass, ws_set_rgbw)
     websocket_api.async_register_command(hass, ws_emergency_off)
     websocket_api.async_register_command(hass, ws_reconnect)
@@ -159,6 +161,41 @@ async def ws_set_tank(hass, connection, msg: dict[str, Any]) -> None:
         connection.send_error(msg["id"], "not_found", "Unknown device")
         return
     await coordinator.async_set_tank(msg["tank"])
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "aqua_chihiros/start_treatment",
+        vol.Required("entry_id"): str,
+        vol.Required("program"): str,
+        vol.Optional("days", default=3): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=60)),
+    }
+)
+@websocket_api.async_response
+async def ws_start_treatment(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    try:
+        await coordinator.async_start_temporary_program(msg["program"], msg["days"])
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_program", str(err))
+        return
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "aqua_chihiros/stop_treatment", vol.Required("entry_id"): str}
+)
+@websocket_api.async_response
+async def ws_stop_treatment(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    await coordinator.async_stop_treatment()
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

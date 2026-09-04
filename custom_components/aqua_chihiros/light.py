@@ -53,6 +53,11 @@ async def async_setup_entry(
         {vol.Optional("days", default=7): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=60))},
         "async_service_start_algae_protection",
     )
+    platform.async_register_entity_service(
+        "start_blackout",
+        {vol.Optional("days", default=3): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=14))},
+        "async_service_start_blackout",
+    )
     platform.async_register_entity_service("emergency_off", {}, "async_service_emergency_off")
     platform.async_register_entity_service("sync_time", {}, "async_service_sync_time")
 
@@ -128,6 +133,9 @@ class ChihirosLight(ChihirosEntity, LightEntity):
 
     async def async_service_start_algae_protection(self, days: float) -> None:
         await self.coordinator.async_start_temporary_program("algae_protection_early", days)
+
+    async def async_service_start_blackout(self, days: float) -> None:
+        await self.coordinator.async_start_temporary_program("blackout", days)
 
     async def async_service_emergency_off(self) -> None:
         await self.coordinator.async_emergency_off()

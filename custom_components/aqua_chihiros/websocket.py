@@ -32,6 +32,8 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_tank)
     websocket_api.async_register_command(hass, ws_start_treatment)
     websocket_api.async_register_command(hass, ws_stop_treatment)
+    websocket_api.async_register_command(hass, ws_list_switches)
+    websocket_api.async_register_command(hass, ws_set_co2)
     websocket_api.async_register_command(hass, ws_set_rgbw)
     websocket_api.async_register_command(hass, ws_emergency_off)
     websocket_api.async_register_command(hass, ws_reconnect)
@@ -196,6 +198,37 @@ async def ws_stop_treatment(hass, connection, msg: dict[str, Any]) -> None:
         connection.send_error(msg["id"], "not_found", "Unknown device")
         return
     await coordinator.async_stop_treatment()
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command({vol.Required("type"): "aqua_chihiros/list_switches"})
+@callback
+def ws_list_switches(hass, connection, msg: dict[str, Any]) -> None:
+    """Switchable entities the user can pick as their CO₂ switch."""
+    items = [
+        {"entity_id": s.entity_id, "name": s.attributes.get("friendly_name", s.entity_id)}
+        for s in hass.states.async_all(["switch", "input_boolean"])
+    ]
+    items.sort(key=lambda x: x["name"].lower())
+    connection.send_result(msg["id"], {"switches": items})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "aqua_chihiros/set_co2",
+        vol.Required("entry_id"): str,
+        vol.Required("switch"): vol.Any(None, str),
+        vol.Optional("before_on", default=60): vol.All(int, vol.Range(min=0, max=360)),
+        vol.Optional("before_off", default=60): vol.All(int, vol.Range(min=0, max=360)),
+    }
+)
+@websocket_api.async_response
+async def ws_set_co2(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    await coordinator.async_set_co2(msg["switch"], msg["before_on"], msg["before_off"])
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

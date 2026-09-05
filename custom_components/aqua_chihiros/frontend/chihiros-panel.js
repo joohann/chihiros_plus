@@ -329,7 +329,10 @@ class ChihirosPanel extends HTMLElement {
           </span>
           <button class="preview" id="preview">▶ Preview</button>
         </div>
-        <canvas id="curve" width="1160" height="240"></canvas>
+        <div class="curvewrap">
+          <canvas id="curve" width="1160" height="240"></canvas>
+          <div id="hovertip" class="hovertip" hidden></div>
+        </div>
         <div class="bright"><span class="big" id="pv-b">${dev.brightness}</span><span class="u">% brightness</span></div>
         <div class="chrow">
           ${CH.map(([lbl, col], i) => `<div class="ch"><div class="n" id="pv-ch-${i}" style="color:${col}">${dev.desired[i]}</div><div class="c">${lbl}</div></div>`).join("")}
@@ -474,6 +477,47 @@ class ChihirosPanel extends HTMLElement {
     }
 
     this._drawCurve();
+    this._bindCurveHover(dev);
+  }
+
+  // Scrub the timeline: hovering (or dragging on touch) shows the time and the
+  // channel values at the pointer; leaving restores the live "now" readout.
+  _bindCurveHover(dev) {
+    const cv = this.shadowRoot.getElementById("curve");
+    const tip = this.shadowRoot.getElementById("hovertip");
+    if (!cv || !tip || !this._curve) return;
+    const titleEl = this.shadowRoot.getElementById("pv-title");
+    const at = (e) => {
+      if (this._playing) return;                 // don't fight the preview player
+      const rect = cv.getBoundingClientRect();
+      const px = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+      const frac = Math.max(0, Math.min(1, px / rect.width));
+      const minute = frac * 1440;
+      this._drawCurve(minute);
+      this._updateReadout(minute, null);         // update values, keep the title
+      tip.hidden = false;
+      tip.textContent = minToTime(Math.round(minute));
+      // Keep the bubble inside the card, pointing at the cursor.
+      const x = Math.max(24, Math.min(rect.width - 24, px));
+      tip.style.left = `${x}px`;
+    };
+    const leave = () => {
+      if (this._playing) return;
+      tip.hidden = true;
+      this._drawCurve();                          // back to the live "now" marker
+      const b = this.shadowRoot.getElementById("pv-b");
+      if (b) b.textContent = dev.brightness;
+      for (let i = 0; i < 4; i++) {
+        const el = this.shadowRoot.getElementById(`pv-ch-${i}`);
+        if (el) el.textContent = dev.desired[i];
+      }
+      if (titleEl) titleEl.innerHTML = `${esc(dev.program_name)} <small>· ${esc(dev.phase)}</small>`;
+    };
+    cv.addEventListener("mousemove", at);
+    cv.addEventListener("mouseleave", leave);
+    cv.addEventListener("touchstart", at, { passive: true });
+    cv.addEventListener("touchmove", at, { passive: true });
+    cv.addEventListener("touchend", leave);
   }
 
   async _startTreatment(program, days) {
@@ -663,7 +707,9 @@ class ChihirosPanel extends HTMLElement {
             <span class="wic">⚙️</span>
             <span class="wtt"><b>Advanced</b><small>Also set the light schedule / follow sunset and link CO₂.</small></span>
             <span class="wgo">›</span></button>
-        </div>`;
+        </div>
+        <p class="wdisclaimer">Not affiliated with Chihiros. “Chihiros” and its logos are
+          trademarks of their respective owners; this is an independent, unofficial integration.</p>`;
     } else if (w.step === "tank") {
       body = `${dots(0)}
         <div class="weyebrow">Step 1 · Tank</div>
@@ -1042,7 +1088,13 @@ const STYLES = `
   .util button.off:hover { color:var(--error-color,#d8434f); }
   .curvehead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; }
   .ct { font-weight:600; font-size:14px; }
-  canvas { width:100%; display:block; }
+  canvas { width:100%; display:block; cursor:crosshair; }
+  .curvewrap { position:relative; }
+  .hovertip { position:absolute; top:-2px; transform:translateX(-50%);
+    background:var(--primary-text-color); color:var(--card-background-color);
+    font-family:monospace; font-size:12px; font-weight:700; padding:3px 7px;
+    border-radius:7px; pointer-events:none; white-space:nowrap; z-index:2;
+    box-shadow:0 2px 8px rgba(0,0,0,.25); }
   .bright { display:flex; align-items:baseline; gap:8px; margin-top:14px; }
   .big { font-size:32px; font-weight:700; line-height:1; }
   .u { color:var(--secondary-text-color); font-size:14px; }
@@ -1176,6 +1228,7 @@ const STYLES = `
   .wr + .wr { border-top:1px solid var(--divider-color); }
   .wr span { color:var(--secondary-text-color); }
   .wr b { font-weight:600; text-align:right; }
+  .wdisclaimer { margin:22px 0 0; font-size:11.5px; line-height:1.5; color:var(--ink-3,var(--secondary-text-color)); }
   .wcenter { text-align:center; padding:8px 0; }
   .wdone { width:64px; height:64px; border-radius:50%; display:grid; place-items:center;
     margin:4px auto 18px; background:color-mix(in srgb, var(--success-color,#16a34a) 15%, transparent);

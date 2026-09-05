@@ -99,4 +99,7 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_ADDRESS: info.address,
                 CONF_MODEL: model.key if model else "wrgb_ii_slim",
             },
+            # New lamps start un-onboarded so the panel offers a first-time
+            # setup. Existing entries have no such key -> treated as onboarded.
+            options={"onboarded": False},
         )

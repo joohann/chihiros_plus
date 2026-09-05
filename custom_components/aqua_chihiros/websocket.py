@@ -30,6 +30,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_follow_sun)
     websocket_api.async_register_command(hass, ws_set_maintenance)
     websocket_api.async_register_command(hass, ws_set_tank)
+    websocket_api.async_register_command(hass, ws_complete_onboarding)
     websocket_api.async_register_command(hass, ws_start_treatment)
     websocket_api.async_register_command(hass, ws_stop_treatment)
     websocket_api.async_register_command(hass, ws_list_switches)
@@ -163,6 +164,19 @@ async def ws_set_tank(hass, connection, msg: dict[str, Any]) -> None:
         connection.send_error(msg["id"], "not_found", "Unknown device")
         return
     await coordinator.async_set_tank(msg["tank"])
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "aqua_chihiros/complete_onboarding", vol.Required("entry_id"): str}
+)
+@websocket_api.async_response
+async def ws_complete_onboarding(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    await coordinator.async_complete_onboarding()
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

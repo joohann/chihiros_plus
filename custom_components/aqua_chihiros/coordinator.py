@@ -223,6 +223,13 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.hass.config_entries.async_update_entry(self.entry, options=opts)
         await self.async_request_refresh()
 
+    async def async_complete_onboarding(self) -> None:
+        """Mark first-time setup as finished so the panel shows the controls."""
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "onboarded": True}
+        )
+        await self.async_request_refresh()
+
     async def async_set_follow_sun(self, enabled: bool) -> None:
         """Toggle following the real sunrise/sunset."""
         self._follow_sun = bool(enabled)
@@ -433,6 +440,10 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             # Tank/aquarium group: lamps sharing a tank name are controlled
             # together by the panel. Unset -> the lamp is its own tank.
             "tank": self.entry.options.get("tank") or self.entry.title,
+            # First-time setup: freshly added lamps (options set by the config
+            # flow) start False so the panel offers a wizard. Existing entries
+            # have no such key -> treated as already onboarded.
+            "onboarded": bool(self.entry.options.get("onboarded", True)),
             "model": self.model.name,
             "mode": d.mode,
             "program_key": d.program_key,

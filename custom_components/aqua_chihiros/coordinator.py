@@ -12,6 +12,7 @@ Assistant meets the pure layers; the layers below it never import HA.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -353,6 +354,19 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._manual = RGBW(0, 0, 0, 0)
         ok = await self.controller.emergency_off()
         await self.async_request_refresh()
+        return ok
+
+    async def async_identify(self, cycles: int = 3) -> bool:
+        """Blink the lamp (white) a few times so the user can spot which
+        physical unit this entry is, then restore the normal output."""
+        ok = True
+        white, dark = RGBW(0, 0, 0, 100), RGBW(0, 0, 0, 0)
+        for _ in range(max(1, cycles)):
+            ok = await self.controller.apply_rgbw(white, force=True) and ok
+            await asyncio.sleep(0.4)
+            await self.controller.apply_rgbw(dark, force=True)
+            await asyncio.sleep(0.4)
+        await self.async_request_refresh()   # back to the real desired output
         return ok
 
     async def async_sync_time(self) -> bool:

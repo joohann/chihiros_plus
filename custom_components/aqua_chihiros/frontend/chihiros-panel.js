@@ -829,20 +829,23 @@ class ChihirosPanel extends HTMLElement {
 
   async _wizApply() {
     const w = this._wiz;
+    // Fix the target lamps up front: renaming the tank changes how _members()
+    // resolves, so every command must go to these ids, not to a live lookup.
+    const ids = this._memberIds();
+    const send = (build) => Promise.allSettled(ids.map((id) => this._ws(build(id))));
     this._wizGo("applying");
     try {
-      await this._fanout((id) => ({ type: "aqua_chihiros/set_tank", entry_id: id, tank: w.tank }));
-      this._selected = w.tank;
-      await this._fanout((id) => ({ type: "aqua_chihiros/set_program", entry_id: id, program: w.program }));
+      await send((id) => ({ type: "aqua_chihiros/set_tank", entry_id: id, tank: w.tank }));
+      await send((id) => ({ type: "aqua_chihiros/set_program", entry_id: id, program: w.program }));
       if (w.mode === "advanced") {
-        await this._fanout((id) => ({ type: "aqua_chihiros/set_follow_sun", entry_id: id, enabled: !!w.follow_sun }));
-        await this._fanout((id) => ({ type: "aqua_chihiros/set_schedule", entry_id: id,
+        await send((id) => ({ type: "aqua_chihiros/set_follow_sun", entry_id: id, enabled: !!w.follow_sun }));
+        await send((id) => ({ type: "aqua_chihiros/set_schedule", entry_id: id,
           start_minute: timeToMin(w.start), day_length_minutes: Math.round(w.len * 60) }));
         if (w.co2) {
-          await this._fanout((id) => ({ type: "aqua_chihiros/set_co2", entry_id: id, switch: w.co2, before_on: 60, before_off: 60 }));
+          await send((id) => ({ type: "aqua_chihiros/set_co2", entry_id: id, switch: w.co2, before_on: 60, before_off: 60 }));
         }
       }
-      await this._fanout((id) => ({ type: "aqua_chihiros/complete_onboarding", entry_id: id }));
+      await send((id) => ({ type: "aqua_chihiros/complete_onboarding", entry_id: id }));
       this._wizGo("done");
     } catch (err) {
       this._toast("Setup failed — try again", "error");
@@ -1007,6 +1010,7 @@ function esc(s) {
 
 const STYLES = `
   :host { --chihiros-accent:#0a9d94; display:block; }
+  :host *, :host *::before, :host *::after { box-sizing:border-box; }
   #topbar:not(:empty) { position:sticky; top:0; z-index:5; display:flex; align-items:center;
     gap:6px; height:52px; padding:0 6px;
     /* Coloured by default in the Chihiros brand teal so the bar reads as part
@@ -1192,7 +1196,7 @@ const STYLES = `
     background:var(--secondary-background-color); color:var(--primary-text-color); }
   .field input[type=range] { width:100%; accent-color:var(--chihiros-accent); }
   /* First-time setup wizard */
-  .wcard { padding:24px; margin-top:26px; }
+  .wcard { padding:24px; margin:26px auto 0; max-width:460px; }
   .wsteps { display:flex; gap:7px; margin-bottom:20px; }
   .wsteps i { height:5px; border-radius:99px; background:var(--divider-color); flex:1; transition:.25s; }
   .wsteps i.on { background:var(--chihiros-accent); }

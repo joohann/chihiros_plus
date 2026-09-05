@@ -26,6 +26,18 @@ def _looks_like_chihiros(info: BluetoothServiceInfoBleak) -> bool:
     return has_uart or name.startswith(FAMILY_NAME_PREFIX)
 
 
+def _model_name(info: BluetoothServiceInfoBleak) -> str:
+    """Human model name guessed from the advertised name (or a fallback)."""
+    model = model_for_name(info.name or "")
+    return model.name if model else "Chihiros light"
+
+
+def _discovery_label(info: BluetoothServiceInfoBleak) -> str:
+    """A label that leads with the lamp type so identical-looking names
+    (e.g. three DYWPRO…) can still be told apart while adding."""
+    return f"{_model_name(info)} · {info.name or info.address}"
+
+
 class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Chihiros aquarium lights."""
 
@@ -42,7 +54,7 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
         self._discovered = discovery_info
-        self.context["title_placeholders"] = {"name": discovery_info.name or "Chihiros"}
+        self.context["title_placeholders"] = {"name": _discovery_label(discovery_info)}
         return await self.async_step_bluetooth_confirm()
 
     async def async_step_bluetooth_confirm(
@@ -55,7 +67,7 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
         self._set_confirm_only()
         return self.async_show_form(
             step_id="bluetooth_confirm",
-            description_placeholders={"name": info.name or info.address},
+            description_placeholders={"name": _discovery_label(info)},
         )
 
     async def async_step_user(
@@ -83,7 +95,7 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_ADDRESS): vol.In(
                         {
-                            addr: f"{info.name or 'Chihiros'} ({addr})"
+                            addr: _discovery_label(info)
                             for addr, info in self._discovered_map.items()
                         }
                     )

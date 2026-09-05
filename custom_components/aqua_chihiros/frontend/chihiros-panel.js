@@ -217,6 +217,21 @@ class ChihirosPanel extends HTMLElement {
     }
   }
 
+  async _identify(entryId) {
+    this._lastInteraction = Date.now();
+    this._busy = true;
+    this._toast("Blinking lamp…");
+    try {
+      await this._ws({ type: "aqua_chihiros/identify", entry_id: entryId });
+      this._toast("Did it blink? ✓", "ok");
+    } catch (err) {
+      this._toast("Identify failed", "error");
+    } finally {
+      this._busy = false;
+      await this._load();
+    }
+  }
+
   async _setTank(entryId, tank) {
     this._lastInteraction = Date.now();
     try {
@@ -428,6 +443,8 @@ class ChihirosPanel extends HTMLElement {
 
     this.shadowRoot.querySelectorAll("[data-tank]").forEach((inp) =>
       inp.addEventListener("change", () => this._setTank(inp.dataset.tank, inp.value.trim())));
+    this.shadowRoot.querySelectorAll("[data-identify]").forEach((b) =>
+      b.addEventListener("click", () => this._identify(b.dataset.identify)));
 
     const co2apply = () => {
       const sw = this.shadowRoot.getElementById("co2-switch").value || null;
@@ -861,8 +878,8 @@ class ChihirosPanel extends HTMLElement {
   _lampRow(d) {
     return `<div class="dev">
       <span class="led" style="background:${CONN_COLOR[d.connection]}"></span>
-      <span class="nm">${esc(d.name)}</span>
-      <span class="st" style="color:${CONN_COLOR[d.connection]}">${(CONN_LABEL[d.connection] || d.connection).toUpperCase()}</span>
+      <span class="nm">${esc(d.name)}${d.model ? ` <span class="model">${esc(d.model)}</span>` : ""}</span>
+      <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡 Identify</button>
       <span class="meta mono">${d.rssi != null ? d.rssi + " dBm" : "—"}</span></div>`;
   }
 
@@ -932,10 +949,11 @@ class ChihirosPanel extends HTMLElement {
     return `
       <p class="muted" style="margin:0 0 10px;font-size:12px">Give lamps the same tank name to control them together.</p>
       ${this._devices.map((d) => `
-        <label class="tankrow">
-          <span class="tankname">${esc(d.name)}</span>
+        <div class="tankrow">
+          <span class="tankname">${esc(d.name)}${d.model ? `<small class="model">${esc(d.model)}</small>` : ""}</span>
+          <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡</button>
           <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
-        </label>`).join("")}`;
+        </div>`).join("")}`;
   }
 
   async _setCo2(sw, on, off) {
@@ -1124,9 +1142,16 @@ const STYLES = `
     background:color-mix(in srgb, var(--chihiros-accent) 14%, transparent); }
   .dev { display:flex; align-items:center; gap:12px; padding:12px 0; }
   .dev + .dev { border-top:1px solid var(--divider-color); }
-  .dev .nm { flex:1; font-weight:600; font-size:14px; }
+  .dev .nm { flex:1; font-weight:600; font-size:14px; min-width:0; }
+  .dev .nm .model { display:block; font-weight:500; font-size:11px; color:var(--secondary-text-color); }
   .dev .st { font-size:11px; font-weight:700; }
-  .dev .meta { font-size:11px; color:var(--secondary-text-color); }
+  .dev .meta { font-size:11px; color:var(--secondary-text-color); flex:none; }
+  .idbtn { flex:none; border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); font:inherit; font-size:11.5px; font-weight:600;
+    padding:5px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+  .idbtn:hover { border-color:var(--chihiros-accent); color:var(--chihiros-accent);
+    background:color-mix(in srgb, var(--chihiros-accent) 10%, transparent); }
+  .tankname .model { display:block; font-weight:500; font-size:11px; color:var(--secondary-text-color); }
   .btns { display:flex; gap:10px; margin-top:18px; }
   .btn { flex:1; border:1px solid var(--divider-color); background:var(--card-background-color);
     color:var(--primary-text-color); font-weight:600; font-size:13.5px; padding:12px; border-radius:12px;

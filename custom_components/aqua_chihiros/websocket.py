@@ -38,6 +38,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_rgbw)
     websocket_api.async_register_command(hass, ws_emergency_off)
     websocket_api.async_register_command(hass, ws_reconnect)
+    websocket_api.async_register_command(hass, ws_identify)
 
 
 def _coordinators(hass: HomeAssistant) -> list[ChihirosCoordinator]:
@@ -277,6 +278,19 @@ async def ws_emergency_off(hass, connection, msg: dict[str, Any]) -> None:
         return
     ok = await coordinator.async_emergency_off()
     connection.send_result(msg["id"], {"confirmed": ok, **coordinator.snapshot()})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "aqua_chihiros/identify", vol.Required("entry_id"): str}
+)
+@websocket_api.async_response
+async def ws_identify(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    ok = await coordinator.async_identify()
+    connection.send_result(msg["id"], {"identified": ok, **coordinator.snapshot()})
 
 
 @websocket_api.websocket_command(

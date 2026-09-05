@@ -94,6 +94,16 @@ class LightEngine:
         # Keep strictly sorted by x for the sampler.
         self._curve = sorted(curve, key=lambda kf: kf[0])
 
+    @property
+    def light_on_minute(self) -> int:
+        """Minute-of-day the lights start rising (for CO₂ timing etc.)."""
+        return int(self._start % _DAY)
+
+    @property
+    def light_off_minute(self) -> int:
+        """Minute-of-day the lights reach off."""
+        return int(self._day_end % _DAY)
+
     def get_state(self, when: datetime) -> LightState:
         """Return the desired light state at ``when`` (naive local time used)."""
         minute = when.hour * 60 + when.minute + when.second / 60

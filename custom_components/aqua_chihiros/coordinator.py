@@ -113,6 +113,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._treatment: dict | None = entry.options.get("treatment")
         if self._treatment:
             self._restore_treatment()
+        # Optional CO₂ coupling: a user-chosen switch driven ON before lights on
+        # and OFF before lights off, following the active program's photoperiod.
+        self._co2_switch: str | None = entry.options.get("co2_switch")
+        self._co2_before_on: int = int(entry.options.get("co2_before_on", 60))
+        self._co2_before_off: int = int(entry.options.get("co2_before_off", 60))
 
     # -- program / mode control ---------------------------------------------
 
@@ -389,6 +394,10 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             await self.controller.apply_rgbw(desired)
         except Exception:  # pragma: no cover - watchdog already handles retries
             _LOGGER.debug("%s: apply failed", self.name, exc_info=True)
+        try:
+            await self._apply_co2()
+        except Exception:  # pragma: no cover - never let CO₂ break the update
+            _LOGGER.debug("%s: CO2 apply failed", self.name, exc_info=True)
         event = self.watchdog.poll_notification()
         if event is not None:
             self._notify_unreachable(event.level, event.elapsed_seconds)
@@ -435,6 +444,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "follow_sun": self._follow_sun,
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
+            "co2": self._co2_snapshot(),
             "desired": list(d.desired.as_tuple()),
             "confirmed": list(d.confirmed.as_tuple()) if d.confirmed else None,
             "is_confirmed": d.is_confirmed,
@@ -461,6 +471,77 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "total_days": total,
             "revert_to": revert.name,
             "progress": max(0.0, min(1.0, elapsed_days / total)) if total else 1.0,
+        }
+
+    # -- optional CO₂ coupling ----------------------------------------------
+
+    def _co2_window(self) -> tuple[int, int] | None:
+        """(on, off) minute-of-day for CO₂, or None if it must not run now."""
+        if self._mode != MODE_PROGRAM:
+            return None
+        p = self._program
+        if p.max_intensity <= 0 or p.day_length_minutes < 60:
+            return None  # Blackout / Moonlight: no real photoperiod
+        on = (self._engine.light_on_minute - self._co2_before_on) % 1440
+        off = (self._engine.light_off_minute - self._co2_before_off) % 1440
+        return on, off
+
+    @staticmethod
+    def _in_window(now: int, start: int, end: int) -> bool:
+        if start == end:
+            return False
+        return start <= now < end if start < end else (now >= start or now < end)
+
+    def _co2_desired(self) -> bool | None:
+        if not self._co2_switch:
+            return None
+        window = self._co2_window()
+        if window is None:
+            return False
+        now = dt_util.now()
+        return self._in_window(now.hour * 60 + now.minute, *window)
+
+    async def _apply_co2(self) -> None:
+        want = self._co2_desired()
+        if want is None:
+            return
+        state = self.hass.states.get(self._co2_switch)
+        if state is None:
+            return  # entity gone/unavailable — don't guess
+        is_on = state.state == "on"
+        service = "turn_on" if want and not is_on else "turn_off" if not want and is_on else None
+        if service:
+            await self.hass.services.async_call(
+                "homeassistant", service, {"entity_id": self._co2_switch}, blocking=False)
+
+    async def async_set_co2(self, switch, before_on, before_off) -> None:
+        self._co2_switch = switch or None
+        self._co2_before_on = max(0, min(360, int(before_on)))
+        self._co2_before_off = max(0, min(360, int(before_off)))
+        opts = {
+            **self.entry.options,
+            "co2_before_on": self._co2_before_on,
+            "co2_before_off": self._co2_before_off,
+        }
+        if self._co2_switch:
+            opts["co2_switch"] = self._co2_switch
+        else:
+            opts.pop("co2_switch", None)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+        await self.async_request_refresh()
+
+    @callback
+    def _co2_snapshot(self) -> dict:
+        window = self._co2_window() if self._co2_switch else None
+        fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"  # noqa: E731
+        return {
+            "enabled": bool(self._co2_switch),
+            "switch": self._co2_switch,
+            "before_on": self._co2_before_on,
+            "before_off": self._co2_before_off,
+            "on": self._co2_desired(),
+            "on_at": fmt(window[0]) if window else None,
+            "off_at": fmt(window[1]) if window else None,
         }
 
     @callback

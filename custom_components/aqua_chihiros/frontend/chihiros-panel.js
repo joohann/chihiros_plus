@@ -55,7 +55,7 @@ class ChihirosPanel extends HTMLElement {
     this._playRAF = null;
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
-    this._collapsed = { program: true, schedule: true, tanks: true };  // compact by default
+    this._collapsed = { program: true, setup: true, schedule: true, tanks: true, co2: true };
   }
 
   set narrow(value) {
@@ -140,6 +140,12 @@ class ChihirosPanel extends HTMLElement {
       const leader = this._leader();
       if (leader) {
         this._curve = await this._ws({ type: "aqua_chihiros/get_curve", entry_id: leader.entry_id });
+      }
+      if (!this._switches) {
+        try {
+          const r = await this._ws({ type: "aqua_chihiros/list_switches" });
+          this._switches = r.switches || [];
+        } catch (e) { this._switches = []; }
       }
       this._render();
     } catch (err) {
@@ -290,19 +296,12 @@ class ChihirosPanel extends HTMLElement {
     if (!Number.isFinite(dev.brightness)) dev.brightness = 0;
     const off = dev.brightness === 0;
     root.innerHTML = `
-      <div class="pagehead">
+      <div class="head">
         <div>
-          <div class="eyebrow">Aquarium${this._members().length > 1 ? ` · ${this._members().length} lamps` : ""}</div>
           <h1>${esc(this._selected)}</h1>
+          <div class="subline"><span class="led" style="background:${CONN_COLOR[dev.connection]}"></span>${CONN_LABEL[dev.connection] || dev.connection}${this._members().length > 1 ? ` · ${this._members().length} lamps` : ""}${dev.rssi != null ? ` · <span class="mono">${dev.rssi} dBm</span>` : ""}</div>
         </div>
         ${Object.keys(this._tanks).length > 1 ? this._switcher() : ""}
-      </div>
-
-      <div class="statusline">
-        <span class="led" style="background:${CONN_COLOR[dev.connection]}"></span>
-        <span><b>${esc(dev.program_name)}</b> · ${esc(dev.phase)}</span>
-        <span class="dot">•</span><span>${CONN_LABEL[dev.connection] || dev.connection}</span>
-        ${dev.rssi != null ? `<span class="dot">•</span><span class="mono">${dev.rssi} dBm</span>` : ""}
       </div>
 
       ${dev.treatment ? `
@@ -318,12 +317,15 @@ class ChihirosPanel extends HTMLElement {
         <div class="tbar"><span style="width:${Math.round((dev.treatment.progress || 0) * 100)}%"></span></div>
       </section>` : ""}
 
-      <section class="card">
-        <div class="curvehead">
-          <span class="ct" id="pv-title">Today · ${esc(dev.program_name)}</span>
-          <button class="preview" id="preview">▶ Preview on lamp</button>
+      <section class="card hero">
+        <div class="herotop">
+          <span class="now">
+            <span class="badge">● LIVE</span>
+            <span class="phase">${esc(dev.program_name)} <small>· ${esc(dev.phase)}</small></span>
+          </span>
+          <button class="preview" id="preview">▶ Preview</button>
         </div>
-        <canvas id="curve" width="1160" height="260"></canvas>
+        <canvas id="curve" width="1160" height="240"></canvas>
         <div class="bright"><span class="big" id="pv-b">${dev.brightness}</span><span class="u">% brightness</span></div>
         <div class="chrow">
           ${CH.map(([lbl, col], i) => `<div class="ch"><div class="n" id="pv-ch-${i}" style="color:${col}">${dev.desired[i]}</div><div class="c">${lbl}</div></div>`).join("")}
@@ -335,10 +337,11 @@ class ChihirosPanel extends HTMLElement {
             : `<div class="confirm unk">? not confirmed — desired only</div>`}
       </section>
 
-      <section class="card">
-        <div class="proghead" data-collapse="program">
-          <b class="curname">${esc(dev.program_name)}</b>
-          <span class="chev">${this._collapsed.program ? "▸" : "▾"}</span>
+      <section class="card ctlcard">
+        <div class="ctl" data-collapse="program">
+          <span class="ic">🌱</span>
+          <span class="ctxt"><small>Program</small><b>${esc(dev.program_name)}</b></span>
+          <span class="go">${this._collapsed.program ? "Change ›" : "Close ▾"}</span>
         </div>
         <div class="progopts" ${this._collapsed.program ? "hidden" : ""}>
           ${PROGRAM_GROUPS.map(([label, items]) => `
@@ -346,62 +349,59 @@ class ChihirosPanel extends HTMLElement {
             <div class="progs">
               ${items.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
             </div>`).join("")}
-        </div>
-        ${TREATMENTS[dev.program_key] && !dev.treatment ? `
-          <div class="treatstart">
-            <span class="muted">Run as timed treatment:</span>
-            <input type="number" id="treatdays" min="1" max="14" value="${TREATMENTS[dev.program_key]}">
-            <span class="muted">days</span>
-            <button class="btn small" id="starttreat">▶ Start</button>
-          </div>` : ""}
-        <div class="collhead" data-collapse="schedule">
-          <span>Schedule &amp; timing</span>
-          <span class="chev">${this._collapsed.schedule ? "▸" : "▾"}</span>
-        </div>
-        <div class="sched" ${this._collapsed.schedule ? "hidden" : ""}>
-          <label class="sunrow">
-            <input type="checkbox" id="follow-sun" ${dev.follow_sun ? "checked" : ""}>
-            <span>🌇 Follow real sunset</span>
-          </label>
-          <div class="fields">
-            <label class="field ${dev.follow_sun ? "dim" : ""}">
-              <span>Start time ${dev.follow_sun ? "· auto" : ""}</span>
-              <input type="time" id="sched-start" value="${minToTime(dev.start_minute)}" ${dev.follow_sun ? "disabled" : ""}>
-            </label>
-            <label class="field">
-              <span>Day length <b id="sched-len-val">${(dev.day_length_minutes / 60).toFixed(1)} h</b></span>
-              <input type="range" id="sched-len" min="1" max="24" step="0.5"
-                     value="${(dev.day_length_minutes / 60).toFixed(1)}">
-            </label>
-          </div>
-          ${dev.follow_sun
-            ? `<div class="sunnote">Sunset anchored to the sun (${minToTime(dev.start_minute + dev.day_length_minutes)}). Lights start ${minToTime(dev.start_minute)} — change the length to shift the start.</div>`
-            : `<div class="sunnote">Manual: ${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}.</div>`}
+          ${TREATMENTS[dev.program_key] && !dev.treatment ? `
+            <div class="treatstart">
+              <span class="muted">Run as timed treatment:</span>
+              <input type="number" id="treatdays" min="1" max="14" value="${TREATMENTS[dev.program_key]}">
+              <span class="muted">days</span>
+              <button class="btn small" id="starttreat">▶ Start</button>
+            </div>` : ""}
         </div>
       </section>
 
-      <section class="card">
-        <div class="lbl">Lamps in this tank</div>
+      <section class="card ctlcard">
+        <div class="ctl maint" id="maint">
+          <span class="ic">🧽</span>
+          <span class="ctxt"><small>Maintenance</small><b>${dev.maintenance ? "On · white 100%" : "Off"}</b></span>
+          <span class="go">${dev.maintenance ? "Stop ›" : "Start ›"}</span>
+        </div>
+      </section>
+
+      <section class="card devices">
         ${this._members().map((d) => this._lampRow(d)).join("")}
-        <button class="btn maint ${dev.maintenance ? "on" : ""}" id="maint">
-          ${dev.maintenance ? "▶ Resume program" : "🧽 Maintenance — white 100%"}
-        </button>
-        <div class="btns">
-          <button class="btn" id="reconnect">⟳ Reconnect</button>
-          <button class="btn danger" id="off">⏻ Turn off</button>
+        <div class="util">
+          <button id="reconnect">⟳ Reconnect</button>
+          <button class="off" id="off">⏻ Turn off</button>
         </div>
-        <div class="collhead" data-collapse="tanks">
-          <span>Group lamps into tanks</span>
-          <span class="chev">${this._collapsed.tanks ? "▸" : "▾"}</span>
+      </section>
+
+      <section class="card ctlcard">
+        <div class="setrow" data-collapse="setup">
+          <span class="ic">⚙️</span>
+          <span class="ctxt"><b>Setup</b><small>Schedule · CO₂ · tanks &amp; lamps</small></span>
+          <span class="chev">${this._collapsed.setup ? "›" : "▾"}</span>
         </div>
-        <div class="tankedit" ${this._collapsed.tanks ? "hidden" : ""}>
-          <p class="muted" style="margin:0 0 10px;font-size:12px">Give lamps the same tank name to control them together.</p>
-          ${this._devices.map((d) => `
-            <label class="tankrow">
-              <span class="tankname">${esc(d.name)}</span>
-              <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
-            </label>`).join("")}
-        </div>
+        ${!this._collapsed.setup ? `
+          <div class="setbody">
+            <div class="setrow sub" data-collapse="schedule">
+              <span class="ic">🌇</span>
+              <span class="ctxt"><b>Schedule &amp; timing</b><small>${this._scheduleValue(dev)}</small></span>
+              <span class="chev">${this._collapsed.schedule ? "›" : "▾"}</span>
+            </div>
+            ${!this._collapsed.schedule ? `<div class="subbody">${this._scheduleContent(dev)}</div>` : ""}
+            <div class="setrow sub" data-collapse="co2">
+              <span class="ic">🫧</span>
+              <span class="ctxt"><b>CO₂</b><small>${this._co2Value(dev)}</small></span>
+              <span class="chev">${this._collapsed.co2 ? "›" : "▾"}</span>
+            </div>
+            ${!this._collapsed.co2 ? `<div class="subbody">${this._co2Content(dev)}</div>` : ""}
+            <div class="setrow sub" data-collapse="tanks">
+              <span class="ic">🐟</span>
+              <span class="ctxt"><b>Tanks &amp; lamps</b><small>${this._tankValue()}</small></span>
+              <span class="chev">${this._collapsed.tanks ? "›" : "▾"}</span>
+            </div>
+            ${!this._collapsed.tanks ? `<div class="subbody">${this._tankContent()}</div>` : ""}
+          </div>` : ""}
       </section>
 
       <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
@@ -421,6 +421,17 @@ class ChihirosPanel extends HTMLElement {
 
     this.shadowRoot.querySelectorAll("[data-tank]").forEach((inp) =>
       inp.addEventListener("change", () => this._setTank(inp.dataset.tank, inp.value.trim())));
+
+    const co2apply = () => {
+      const sw = this.shadowRoot.getElementById("co2-switch").value || null;
+      const on = parseInt(this.shadowRoot.getElementById("co2-on").value, 10) || 0;
+      const off = parseInt(this.shadowRoot.getElementById("co2-off").value, 10) || 0;
+      this._setCo2(sw, on, off);
+    };
+    ["co2-switch", "co2-on", "co2-off"].forEach((id) => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) el.addEventListener("change", co2apply);
+    });
 
     const maint = this.shadowRoot.getElementById("maint");
     if (maint) maint.addEventListener("click", () => this._setMaintenance(!this._dev().maintenance));
@@ -619,6 +630,87 @@ class ChihirosPanel extends HTMLElement {
       <span class="meta mono">${d.rssi != null ? d.rssi + " dBm" : "—"}</span></div>`;
   }
 
+  _scheduleValue(dev) {
+    const h = (dev.day_length_minutes / 60).toFixed(1);
+    const span = `${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}`;
+    return dev.follow_sun ? `Follow sunset · ${h} h · ${span}` : `Manual · ${h} h · ${span}`;
+  }
+
+  _scheduleContent(dev) {
+    return `
+      <label class="sunrow">
+        <input type="checkbox" id="follow-sun" ${dev.follow_sun ? "checked" : ""}>
+        <span>🌇 Follow real sunset</span>
+      </label>
+      <div class="fields">
+        <label class="field ${dev.follow_sun ? "dim" : ""}">
+          <span>Start time ${dev.follow_sun ? "· auto" : ""}</span>
+          <input type="time" id="sched-start" value="${minToTime(dev.start_minute)}" ${dev.follow_sun ? "disabled" : ""}>
+        </label>
+        <label class="field">
+          <span>Day length <b id="sched-len-val">${(dev.day_length_minutes / 60).toFixed(1)} h</b></span>
+          <input type="range" id="sched-len" min="1" max="24" step="0.5"
+                 value="${(dev.day_length_minutes / 60).toFixed(1)}">
+        </label>
+      </div>
+      ${dev.follow_sun
+        ? `<div class="sunnote">Sunset anchored to the sun (${minToTime(dev.start_minute + dev.day_length_minutes)}). Lights start ${minToTime(dev.start_minute)} — change the length to shift the start.</div>`
+        : `<div class="sunnote">Manual: ${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}.</div>`}`;
+  }
+
+  _co2Value(dev) {
+    const c = dev.co2 || { enabled: false };
+    if (!c.enabled) return "Not set — tap to link a switch";
+    return c.on_at ? `On ${c.on_at}–${c.off_at} · currently ${c.on ? "on" : "off"}` : "No photoperiod in this program";
+  }
+
+  _co2Content(dev) {
+    const c = dev.co2 || { enabled: false, before_on: 60, before_off: 60 };
+    const options = ['<option value="">— none (off) —</option>'].concat(
+      (this._switches || []).map((s) =>
+        `<option value="${esc(s.entity_id)}" ${s.entity_id === c.switch ? "selected" : ""}>${esc(s.name)}</option>`)
+    ).join("");
+    return `
+      <label class="field" style="min-width:100%"><span>CO₂ switch</span>
+        <select id="co2-switch">${options}</select></label>
+      <div class="co2row">
+        <label class="field"><span>On before lights</span>
+          <input type="number" id="co2-on" min="0" max="360" value="${c.before_on}"></label>
+        <label class="field"><span>Off before lights out</span>
+          <input type="number" id="co2-off" min="0" max="360" value="${c.before_off}"></label>
+      </div>
+      ${c.enabled ? `<div class="co2status">
+        <span class="led" style="background:${c.on ? "var(--success-color,#16a34a)" : "var(--secondary-text-color)"}"></span>
+        <span>${c.on_at ? `CO₂ runs <b class="mono">${c.on_at}–${c.off_at}</b> · currently <b>${c.on ? "ON" : "OFF"}</b>` : "No photoperiod in the current program"}</span>
+      </div>` : ""}
+      <p class="muted" style="font-size:12px;margin:10px 0 0;line-height:1.5">Follows the active program's photoperiod automatically; off during Blackout, Moonlight, and when the lamps are off / Emergency off.</p>`;
+  }
+
+  _tankValue() {
+    const tanks = this._tanks ? Object.keys(this._tanks).length : 0;
+    const lamps = this._devices.length;
+    return `${tanks} tank${tanks === 1 ? "" : "s"} · ${lamps} lamp${lamps === 1 ? "" : "s"}`;
+  }
+
+  _tankContent() {
+    return `
+      <p class="muted" style="margin:0 0 10px;font-size:12px">Give lamps the same tank name to control them together.</p>
+      ${this._devices.map((d) => `
+        <label class="tankrow">
+          <span class="tankname">${esc(d.name)}</span>
+          <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
+        </label>`).join("")}`;
+  }
+
+  async _setCo2(sw, on, off) {
+    this._lastInteraction = Date.now();
+    this._toast(sw ? "CO₂ linked ✓" : "CO₂ off", "ok");
+    try {
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_co2", entry_id: id, switch: sw, before_on: on, before_off: off }));
+    } catch (err) { this._toast("Could not save CO₂ setting", "error"); }
+    await this._load();
+  }
+
   _drawCurve(previewMinute) {
     const cv = this.shadowRoot.getElementById("curve");
     if (!cv || !this._curve) return;
@@ -714,8 +806,53 @@ const STYLES = `
   .dot { color:var(--divider-color); }
   .led { width:9px; height:9px; border-radius:50%; flex:none; }
   .card { background:var(--card-background-color); border:1px solid var(--divider-color);
-    border-radius:16px; padding:20px; box-shadow:var(--ha-card-box-shadow,none); }
-  .card + .card { margin-top:14px; }
+    border-radius:16px; padding:20px; box-shadow:var(--ha-card-box-shadow,none); margin-bottom:14px; }
+  .head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    margin:14px 0 18px; }
+  .subline { display:flex; align-items:center; gap:7px; margin-top:4px; flex-wrap:wrap;
+    font-size:13px; color:var(--secondary-text-color); }
+
+  /* Hero: the live card, framed in accent so it reads as the focal point. */
+  .card.hero { border:1.5px solid color-mix(in srgb, var(--chihiros-accent) 45%, var(--divider-color));
+    box-shadow:0 0 0 4px color-mix(in srgb, var(--chihiros-accent) 7%, transparent),
+      var(--ha-card-box-shadow,none); }
+  .herotop { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .now { display:flex; align-items:center; gap:9px; min-width:0; }
+  .badge { font-size:10px; font-weight:800; letter-spacing:.08em; color:#fff; flex:none;
+    background:var(--chihiros-accent); padding:3px 8px; border-radius:999px; }
+  .phase { font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .phase small { color:var(--secondary-text-color); font-weight:500; }
+
+  /* Big control rows (Program, Maintenance, Setup). */
+  .card.ctlcard { padding:0; overflow:hidden; }
+  .ctl, .setrow { display:flex; align-items:center; gap:14px; padding:18px 20px;
+    cursor:pointer; user-select:none; }
+  .ctl:hover, .setrow:hover { background:color-mix(in srgb, var(--primary-text-color) 3%, transparent); }
+  .ctl .ic, .setrow .ic { font-size:22px; flex:none; line-height:1; }
+  .ctxt { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .ctxt small { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--secondary-text-color); font-weight:700; }
+  .ctxt b { font-size:17px; font-weight:600; }
+  .go { flex:none; font-size:13.5px; font-weight:600; color:var(--chihiros-accent); }
+  .ctl.maint .go { color:var(--chihiros-accent); }
+  .chev { flex:none; color:var(--secondary-text-color); font-size:14px; }
+  .progopts { padding:0 20px 18px; }
+  .setbody { border-top:1px solid var(--divider-color); }
+  .setrow.sub { padding:14px 20px; border-top:1px solid var(--divider-color); }
+  .setrow.sub:first-child { border-top:0; }
+  .setrow.sub .ic { font-size:18px; }
+  .setrow.sub .ctxt b { font-size:15px; }
+  .setrow.sub .ctxt small { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
+  .subbody { padding:2px 20px 18px; display:flex; flex-direction:column; gap:14px; }
+
+  /* Devices card: compact, quiet. */
+  .card.devices { padding:14px 20px; }
+  .util { display:flex; gap:18px; margin-top:6px; padding-top:12px;
+    border-top:1px solid var(--divider-color); }
+  .util button { border:0; background:transparent; cursor:pointer; font:inherit;
+    font-size:12.5px; font-weight:600; color:var(--secondary-text-color); padding:4px 0; }
+  .util button:hover { color:var(--primary-text-color); }
+  .util button.off:hover { color:var(--error-color,#d8434f); }
   .curvehead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; }
   .ct { font-weight:600; font-size:14px; }
   canvas { width:100%; display:block; }
@@ -765,11 +902,13 @@ const STYLES = `
   .grouplbl { font-size:11px; letter-spacing:.04em; color:var(--secondary-text-color);
     margin:14px 0 8px; font-weight:600; }
   .grouplbl:first-of-type { margin-top:4px; }
-  .proghead { display:flex; align-items:center; justify-content:space-between;
-    cursor:pointer; user-select:none; }
-  .proghead .curname { font-weight:600; font-size:17px; }
-  .proghead .chev { color:var(--secondary-text-color); font-size:12px; }
-  .progopts { margin-top:14px; }
+  .co2row { display:flex; gap:16px; flex-wrap:wrap; margin-top:14px; }
+  select { font:inherit; font-size:14px; padding:10px 12px; border-radius:10px;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); width:100%; }
+  .co2status { display:flex; align-items:center; gap:9px; margin-top:14px; padding:11px 13px;
+    border-radius:11px; background:var(--secondary-background-color); font-size:13px; }
+  .co2status .led { width:9px; height:9px; border-radius:50%; flex:none; }
   .treatstart { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;
     padding-top:14px; border-top:1px solid var(--divider-color); font-size:13px; }
   .treatstart input { width:56px; font:inherit; padding:6px 8px; border-radius:8px;

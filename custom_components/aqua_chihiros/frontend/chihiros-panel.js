@@ -56,6 +56,7 @@ class ChihirosPanel extends HTMLElement {
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
     this._collapsed = { program: true, setup: true, schedule: true, tanks: true, co2: true };
+    this._wiz = null;              // first-time setup wizard state (null = not in it)
   }
 
   set narrow(value) {
@@ -295,6 +296,9 @@ class ChihirosPanel extends HTMLElement {
     if (!Array.isArray(dev.desired)) dev.desired = [0, 0, 0, 0];
     if (!Number.isFinite(dev.brightness)) dev.brightness = 0;
     const off = dev.brightness === 0;
+    // First-time setup: a freshly added lamp shows a guided wizard instead of
+    // the full controls until the user finishes (or skips) it.
+    if (dev.onboarded === false) { this._renderWizard(dev); return; }
     root.innerHTML = `
       <div class="head">
         <div>
@@ -615,6 +619,189 @@ class ChihirosPanel extends HTMLElement {
 
   _stopPlay() {
     this._finishPlay();
+  }
+
+  // -- first-time setup wizard ----------------------------------------------
+  _renderWizard(dev) {
+    if (!this._wiz) {
+      this._wiz = {
+        step: "intro",
+        mode: null,
+        tank: this._selected || dev.name,
+        program: dev.program_key || "plant_growth",
+        follow_sun: dev.follow_sun !== false,
+        start: minToTime(dev.start_minute),
+        len: dev.day_length_minutes / 60,
+        co2: (dev.co2 && dev.co2.switch) || "",
+      };
+    }
+    const w = this._wiz;
+    const total = w.mode === "advanced" ? 5 : 3;
+    const dots = (active) => `<div class="wsteps">${
+      Array.from({ length: total }, (_, i) =>
+        `<i class="${i < active ? "done" : i === active ? "on" : ""}"></i>`).join("")}</div>`;
+    const nav = (back, next, nextLabel) => `
+      <div class="wnav">
+        ${back ? `<button class="wback" data-go="${back}">← Back</button>` : ""}
+        <span class="wsp"></span>
+        <button class="wbtn" data-go="${next}"${next === "__apply" ? ' id="wiz-apply"' : ""}>${nextLabel}</button>
+      </div>`;
+
+    let body;
+    if (w.step === "intro") {
+      body = `
+        <div class="weyebrow">Welcome</div>
+        <h2 class="wh">Let's set up your lamp</h2>
+        <p class="wlead">Your new Chihiros lamp was found. Choose how much to set up
+          now — you can change everything later.</p>
+        <div class="wpaths">
+          <button class="wpath" data-mode="basic">
+            <span class="wic">⚡</span>
+            <span class="wtt"><b>Quick</b><small>Name the tank and pick a program. Done in 20 seconds.</small></span>
+            <span class="wgo">›</span></button>
+          <button class="wpath" data-mode="advanced">
+            <span class="wic">⚙️</span>
+            <span class="wtt"><b>Advanced</b><small>Also set the light schedule / follow sunset and link CO₂.</small></span>
+            <span class="wgo">›</span></button>
+        </div>`;
+    } else if (w.step === "tank") {
+      body = `${dots(0)}
+        <div class="weyebrow">Step 1 · Tank</div>
+        <h2 class="wh">What's this aquarium called?</h2>
+        <p class="wlead">The name shows at the top of the panel. Lamps sharing a tank
+          name are controlled together.</p>
+        <label class="wf"><span>Tank name</span>
+          <input type="text" id="wiz-tank" value="${esc(w.tank)}" placeholder="e.g. Living room 60L"></label>
+        ${nav("intro", "program", "Next")}`;
+    } else if (w.step === "program") {
+      const isLast = w.mode === "basic";
+      body = `${dots(1)}
+        <div class="weyebrow">Step 2 · Program</div>
+        <h2 class="wh">Pick a light program</h2>
+        <p class="wlead">This sets the colour and brightness curve across the day.
+          <b>Plant Growth</b> is a good start for planted tanks.</p>
+        ${PROGRAM_GROUPS.slice(0, 2).map(([label, items]) => `
+          <div class="grouplbl">${label}</div>
+          <div class="progs">${items.map(([k, n]) =>
+            `<button class="prog ${k === w.program ? "on" : ""}" data-wprog="${k}">${n}</button>`).join("")}</div>`).join("")}
+        ${nav("tank", isLast ? "review" : "schedule", isLast ? "Review" : "Next")}`;
+    } else if (w.step === "schedule") {
+      body = `${dots(2)}
+        <div class="weyebrow">Step 3 · Schedule</div>
+        <h2 class="wh">When are the lights on?</h2>
+        <label class="sunrow"><input type="checkbox" id="wiz-fs" ${w.follow_sun ? "checked" : ""}>
+          <span>🌇 Follow the real sunset</span></label>
+        <div class="fields">
+          <label class="field ${w.follow_sun ? "dim" : ""}"><span>Start time ${w.follow_sun ? "· auto" : ""}</span>
+            <input type="time" id="wiz-start" value="${w.start}" ${w.follow_sun ? "disabled" : ""}></label>
+          <label class="field"><span>Day length <b id="wiz-len-val">${w.len.toFixed(1)} h</b></span>
+            <input type="range" id="wiz-len" min="1" max="14" step="0.5" value="${w.len}"></label>
+        </div>
+        <p class="sunnote">${w.follow_sun
+          ? "Sunset is anchored to the sun; change the day length to shift the start."
+          : "Manual window — start and end times are fixed."}</p>
+        ${nav("program", "co2", "Next")}`;
+    } else if (w.step === "co2") {
+      const options = ['<option value="">— none (skip) —</option>'].concat(
+        (this._switches || []).map((s) =>
+          `<option value="${esc(s.entity_id)}" ${s.entity_id === w.co2 ? "selected" : ""}>${esc(s.name)}</option>`)
+      ).join("");
+      body = `${dots(3)}
+        <div class="weyebrow">Step 4 · CO₂ <span class="muted" style="font-weight:400">· optional</span></div>
+        <h2 class="wh">Link CO₂?</h2>
+        <p class="wlead">Pick a switch that follows the photoperiod automatically
+          (an hour before on, an hour before off). Changeable later.</p>
+        <label class="wf"><span>CO₂ switch</span>
+          <select id="wiz-co2">${options}</select></label>
+        ${nav("schedule", "review", "Review")}`;
+    } else if (w.step === "review") {
+      const adv = w.mode === "advanced";
+      const startMin = timeToMin(w.start);
+      const span = `${minToTime(startMin)}–${minToTime(startMin + Math.round(w.len * 60))}`;
+      const label = (PROGRAMS.find((p) => p[0] === w.program) || [null, w.program])[1];
+      const rows = [
+        ["Tank", esc(w.tank)], ["Program", esc(label)],
+      ].concat(adv ? [
+        ["Schedule", `${w.follow_sun ? "Follow sunset" : "Manual"} · ${w.len.toFixed(1)} h · ${span}`],
+        ["CO₂", w.co2 ? "Linked" : "Not set"],
+      ] : []);
+      body = `${dots(adv ? 4 : 2)}
+        <div class="weyebrow">Almost done</div>
+        <h2 class="wh">Quick check</h2>
+        <p class="wlead">Does this look right? You can change everything later in the panel.</p>
+        <div class="wrev">${rows.map(([k, v]) =>
+          `<div class="wr"><span>${k}</span><b>${v}</b></div>`).join("")}</div>
+        ${nav(adv ? "co2" : "program", "__apply", "✓ Apply")}`;
+    } else if (w.step === "applying") {
+      body = `<div class="wcenter">
+        <div class="confirm pending" style="justify-content:center"><span class="spin"></span>Setting up…</div></div>`;
+    } else if (w.step === "done") {
+      const label = (PROGRAMS.find((p) => p[0] === w.program) || [null, w.program])[1];
+      body = `<div class="wcenter">
+        <div class="wdone">✓</div>
+        <h2 class="wh">Done — ${esc(w.tank)} is set up</h2>
+        <p class="wlead">The <b>${esc(label)}</b> program is now running.</p>
+        <button class="wbtn" data-go="__finish">Go to the panel →</button></div>`;
+    }
+
+    this.shadowRoot.getElementById("root").innerHTML = `<section class="card wcard">${body}</section>`;
+    this._bindWizard();
+  }
+
+  _bindWizard() {
+    const w = this._wiz;
+    const r = this.shadowRoot;
+    r.querySelectorAll("[data-mode]").forEach((b) =>
+      b.addEventListener("click", () => { w.mode = b.dataset.mode; this._wizGo("tank"); }));
+    r.querySelectorAll("[data-wprog]").forEach((b) =>
+      b.addEventListener("click", () => { w.program = b.dataset.wprog; this._renderWizard(this._dev()); }));
+    r.querySelectorAll("[data-go]").forEach((b) =>
+      b.addEventListener("click", () => this._wizNav(b.dataset.go)));
+    const fs = r.getElementById("wiz-fs");
+    if (fs) fs.addEventListener("change", () => { w.follow_sun = fs.checked; this._renderWizard(this._dev()); });
+    const len = r.getElementById("wiz-len");
+    const lenVal = r.getElementById("wiz-len-val");
+    if (len) len.addEventListener("input", () => { w.len = +len.value; if (lenVal) lenVal.textContent = `${w.len.toFixed(1)} h`; });
+  }
+
+  // Capture the current step's field values before navigating away.
+  _wizCapture() {
+    const w = this._wiz, r = this.shadowRoot;
+    const tank = r.getElementById("wiz-tank"); if (tank) w.tank = tank.value.trim() || w.tank;
+    const start = r.getElementById("wiz-start"); if (start) w.start = start.value || w.start;
+    const co2 = r.getElementById("wiz-co2"); if (co2) w.co2 = co2.value;
+  }
+
+  _wizNav(go) {
+    this._wizCapture();
+    if (go === "__apply") { this._wizApply(); return; }
+    if (go === "__finish") { this._wiz = null; this._load(); return; }
+    this._wizGo(go);
+  }
+
+  _wizGo(step) { this._wiz.step = step; this._renderWizard(this._dev()); }
+
+  async _wizApply() {
+    const w = this._wiz;
+    this._wizGo("applying");
+    try {
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_tank", entry_id: id, tank: w.tank }));
+      this._selected = w.tank;
+      await this._fanout((id) => ({ type: "aqua_chihiros/set_program", entry_id: id, program: w.program }));
+      if (w.mode === "advanced") {
+        await this._fanout((id) => ({ type: "aqua_chihiros/set_follow_sun", entry_id: id, enabled: !!w.follow_sun }));
+        await this._fanout((id) => ({ type: "aqua_chihiros/set_schedule", entry_id: id,
+          start_minute: timeToMin(w.start), day_length_minutes: Math.round(w.len * 60) }));
+        if (w.co2) {
+          await this._fanout((id) => ({ type: "aqua_chihiros/set_co2", entry_id: id, switch: w.co2, before_on: 60, before_off: 60 }));
+        }
+      }
+      await this._fanout((id) => ({ type: "aqua_chihiros/complete_onboarding", entry_id: id }));
+      this._wizGo("done");
+    } catch (err) {
+      this._toast("Setup failed — try again", "error");
+      this._wizGo("review");
+    }
   }
 
   _switcher() {
@@ -952,6 +1139,47 @@ const STYLES = `
     border:1px solid var(--divider-color); border-radius:9px;
     background:var(--secondary-background-color); color:var(--primary-text-color); }
   .field input[type=range] { width:100%; accent-color:var(--chihiros-accent); }
+  /* First-time setup wizard */
+  .wcard { padding:24px; margin-top:26px; }
+  .wsteps { display:flex; gap:7px; margin-bottom:20px; }
+  .wsteps i { height:5px; border-radius:99px; background:var(--divider-color); flex:1; transition:.25s; }
+  .wsteps i.on { background:var(--chihiros-accent); }
+  .wsteps i.done { background:color-mix(in srgb, var(--chihiros-accent) 55%, var(--divider-color)); }
+  .weyebrow { font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--chihiros-accent); font-weight:800; margin-bottom:6px; }
+  .wh { font-size:22px; font-weight:700; margin:0 0 6px; line-height:1.2; }
+  .wlead { color:var(--secondary-text-color); font-size:14px; line-height:1.55; margin:0 0 22px; }
+  .wpaths { display:flex; flex-direction:column; gap:12px; }
+  .wpath { display:flex; gap:14px; align-items:flex-start; text-align:left; width:100%;
+    border:1.5px solid var(--divider-color); background:var(--secondary-background-color);
+    border-radius:14px; padding:16px; cursor:pointer; font:inherit; color:inherit; transition:.15s; }
+  .wpath:hover { border-color:color-mix(in srgb, var(--chihiros-accent) 55%, var(--divider-color)); }
+  .wpath .wic { font-size:26px; flex:none; line-height:1; margin-top:1px; }
+  .wpath .wtt { flex:1; min-width:0; }
+  .wpath .wtt b { display:block; font-size:16px; font-weight:700; }
+  .wpath .wtt small { display:block; color:var(--secondary-text-color); font-size:12.5px; margin-top:3px; line-height:1.5; }
+  .wpath .wgo { flex:none; color:var(--chihiros-accent); font-size:20px; align-self:center; }
+  .wf { display:block; margin-bottom:18px; }
+  .wf > span { display:block; font-size:12.5px; font-weight:600; color:var(--secondary-text-color); margin-bottom:8px; }
+  .wf input[type=text], .wf select { font:inherit; font-size:15px; padding:12px 13px; border-radius:11px;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); width:100%; }
+  .wnav { display:flex; align-items:center; gap:12px; margin-top:26px; }
+  .wback { border:0; background:transparent; color:var(--secondary-text-color); font:inherit;
+    font-weight:600; font-size:14px; cursor:pointer; padding:6px; }
+  .wsp { flex:1; }
+  .wbtn { border:0; border-radius:12px; padding:13px 22px; font:inherit; font-weight:700; font-size:15px;
+    cursor:pointer; background:var(--chihiros-accent); color:#fff; }
+  .wbtn:active { transform:translateY(1px); }
+  .wrev { border:1px solid var(--divider-color); border-radius:12px; overflow:hidden; }
+  .wr { display:flex; justify-content:space-between; gap:12px; padding:13px 15px; font-size:14px; }
+  .wr + .wr { border-top:1px solid var(--divider-color); }
+  .wr span { color:var(--secondary-text-color); }
+  .wr b { font-weight:600; text-align:right; }
+  .wcenter { text-align:center; padding:8px 0; }
+  .wdone { width:64px; height:64px; border-radius:50%; display:grid; place-items:center;
+    margin:4px auto 18px; background:color-mix(in srgb, var(--success-color,#16a34a) 15%, transparent);
+    color:var(--success-color,#16a34a); font-size:32px; }
   .toast { position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px);
     background:var(--primary-text-color); color:var(--card-background-color);
     padding:10px 18px; border-radius:10px; font-size:13.5px; font-weight:600;

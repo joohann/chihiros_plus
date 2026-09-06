@@ -10,6 +10,10 @@
  * with the active Home Assistant theme. No second sidebar — this renders in the
  * main content area of HA's existing sidebar entry.
  */
+// Gedeelde "Steun de ontwikkelaar"-knop + popup (Majikan). Eén bron van
+// waarheid; ditzelfde bestand staat in elke Majikan-integratie.
+import "./majikan-donate.js";
+
 // Programs grouped by purpose. The flat PROGRAMS list is derived for lookups.
 const PROGRAM_GROUPS = [
   ["🌱 Daily", [
@@ -426,7 +430,8 @@ class ChihirosPanel extends HTMLElement {
           </div>` : ""}
       </section>
 
-      <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
+      <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>
+      <majikan-donate accent="--chihiros-accent"></majikan-donate>`;
 
     this.shadowRoot.querySelectorAll("[data-prog]").forEach((b) =>
       b.addEventListener("click", () => this._setProgram(b.dataset.prog)));
@@ -735,6 +740,7 @@ class ChihirosPanel extends HTMLElement {
           name are controlled together.</p>
         <label class="wf"><span>Tank name</span>
           <input type="text" id="wiz-tank" value="${esc(w.tank)}" placeholder="e.g. Living room 60L"></label>
+        <button class="idbtn" id="wiz-identify" title="Blink this lamp">💡 Identify this lamp</button>
         ${nav("intro", "program", "Next")}`;
     } else if (w.step === "program") {
       const isLast = w.mode === "basic";
@@ -825,6 +831,12 @@ class ChihirosPanel extends HTMLElement {
     const len = r.getElementById("wiz-len");
     const lenVal = r.getElementById("wiz-len-val");
     if (len) len.addEventListener("input", () => { w.len = +len.value; if (lenVal) lenVal.textContent = `${w.len.toFixed(1)} h`; });
+    const idb = r.getElementById("wiz-identify");
+    if (idb) idb.addEventListener("click", () => {
+      const dev = this._dev();
+      if (dev) this._ws({ type: "aqua_chihiros/identify", entry_id: dev.entry_id }).catch(() => {});
+      this._toast("Blinking lamp…");
+    });
   }
 
   // Capture the current step's field values before navigating away.
@@ -878,7 +890,7 @@ class ChihirosPanel extends HTMLElement {
   _lampRow(d) {
     return `<div class="dev">
       <span class="led" style="background:${CONN_COLOR[d.connection]}"></span>
-      <span class="nm">${esc(d.name)}${d.model ? ` <span class="model">${esc(d.model)}</span>` : ""}</span>
+      <span class="nm">${esc(d.name)}${d.model ? ` <span class="model">· ${esc(d.model)}</span>` : ""}</span>
       <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡 Identify</button>
       <span class="meta mono">${d.rssi != null ? d.rssi + " dBm" : "—"}</span></div>`;
   }
@@ -950,7 +962,7 @@ class ChihirosPanel extends HTMLElement {
       <p class="muted" style="margin:0 0 10px;font-size:12px">Give lamps the same tank name to control them together.</p>
       ${this._devices.map((d) => `
         <div class="tankrow">
-          <span class="tankname">${esc(d.name)}${d.model ? `<small class="model">${esc(d.model)}</small>` : ""}</span>
+          <span class="tankname">${esc(d.name)}${d.model ? ` <small class="model">· ${esc(d.model)}</small>` : ""}</span>
           <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡</button>
           <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
         </div>`).join("")}`;
@@ -1143,7 +1155,7 @@ const STYLES = `
   .dev { display:flex; align-items:center; gap:12px; padding:12px 0; }
   .dev + .dev { border-top:1px solid var(--divider-color); }
   .dev .nm { flex:1; font-weight:600; font-size:14px; min-width:0; }
-  .dev .nm .model { display:block; font-weight:500; font-size:11px; color:var(--secondary-text-color); }
+  .dev .nm .model { font-weight:500; font-size:12px; color:var(--secondary-text-color); }
   .dev .st { font-size:11px; font-weight:700; }
   .dev .meta { font-size:11px; color:var(--secondary-text-color); flex:none; }
   .idbtn { flex:none; border:1px solid var(--divider-color); background:var(--secondary-background-color);
@@ -1151,7 +1163,7 @@ const STYLES = `
     padding:5px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; }
   .idbtn:hover { border-color:var(--chihiros-accent); color:var(--chihiros-accent);
     background:color-mix(in srgb, var(--chihiros-accent) 10%, transparent); }
-  .tankname .model { display:block; font-weight:500; font-size:11px; color:var(--secondary-text-color); }
+  .tankname .model { font-weight:500; font-size:12px; color:var(--secondary-text-color); }
   .btns { display:flex; gap:10px; margin-top:18px; }
   .btn { flex:1; border:1px solid var(--divider-color); background:var(--card-background-color);
     color:var(--primary-text-color); font-weight:600; font-size:13.5px; padding:12px; border-radius:12px;

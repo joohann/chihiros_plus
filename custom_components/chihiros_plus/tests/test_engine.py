@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from aqua_chihiros.engine import LightEngine, Phase
-from aqua_chihiros.engine.programs import NATURAL_DAY, MOONLIGHT
+from chihiros_plus.engine import LightEngine, Phase
+from chihiros_plus.engine.programs import NATURAL_DAY, MOONLIGHT
 
 
 def _at(engine: LightEngine, hour: int, minute: int = 0):

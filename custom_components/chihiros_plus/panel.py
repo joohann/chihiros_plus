@@ -23,10 +23,10 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PANEL_URL_PATH = "chihiros"
-PANEL_TITLE = "AquaChihiros"
-PANEL_ICON = "chihiros:dragon"  # custom brand dragon (frontend/chihiros-icons.js)
-STATIC_URL = "/chihiros_panel_files"
+PANEL_URL_PATH = "chihiros_plus"
+PANEL_TITLE = "Chihiros Plus"
+PANEL_ICON = "chihiros_plus:dragon"  # custom brand dragon (frontend/chihiros-icons.js)
+STATIC_URL = "/chihiros_plus_panel_files"
 FRONTEND_SCRIPT_URL = f"{STATIC_URL}/chihiros-panel.js"
 ICONS_SCRIPT_URL = f"{STATIC_URL}/chihiros-icons.js"
 _STATIC_KEY = f"{DOMAIN}_panel_static_registered"
@@ -50,7 +50,7 @@ async def async_register_static(hass: HomeAssistant) -> None:
 
 
 async def async_register_icons(hass: HomeAssistant) -> None:
-    """Load the custom icon set so 'chihiros:dragon' is usable as an icon.
+    """Load the custom icon set so 'chihiros_plus:dragon' is usable as an icon.
 
     Uses frontend.add_extra_js_url (the pattern HACS uses for its own sidebar
     icon). Registered once and independent of the panel, so the icon works even

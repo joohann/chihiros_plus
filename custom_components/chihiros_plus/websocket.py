@@ -56,7 +56,7 @@ def _coordinator(hass: HomeAssistant, entry_id: str) -> ChihirosCoordinator | No
     return entry.runtime_data
 
 
-@websocket_api.websocket_command({vol.Required("type"): "aqua_chihiros/list_devices"})
+@websocket_api.websocket_command({vol.Required("type"): "chihiros_plus/list_devices"})
 @callback
 def ws_list_devices(hass, connection, msg: dict[str, Any]) -> None:
     connection.send_result(
@@ -65,7 +65,7 @@ def ws_list_devices(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/get_curve", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/get_curve", vol.Required("entry_id"): str}
 )
 @callback
 def ws_get_curve(hass, connection, msg: dict[str, Any]) -> None:
@@ -78,7 +78,7 @@ def ws_get_curve(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_program",
+        vol.Required("type"): "chihiros_plus/set_program",
         vol.Required("entry_id"): str,
         vol.Required("program"): str,
     }
@@ -99,7 +99,7 @@ async def ws_set_program(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_schedule",
+        vol.Required("type"): "chihiros_plus/set_schedule",
         vol.Required("entry_id"): str,
         vol.Optional("start_minute"): vol.All(int, vol.Range(min=0, max=1439)),
         vol.Optional("day_length_minutes"): vol.All(int, vol.Range(min=1, max=1440)),
@@ -119,7 +119,7 @@ async def ws_set_schedule(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_follow_sun",
+        vol.Required("type"): "chihiros_plus/set_follow_sun",
         vol.Required("entry_id"): str,
         vol.Required("enabled"): bool,
     }
@@ -136,7 +136,7 @@ async def ws_set_follow_sun(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_maintenance",
+        vol.Required("type"): "chihiros_plus/set_maintenance",
         vol.Required("entry_id"): str,
         vol.Required("enable"): bool,
     }
@@ -153,7 +153,7 @@ async def ws_set_maintenance(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_tank",
+        vol.Required("type"): "chihiros_plus/set_tank",
         vol.Required("entry_id"): str,
         vol.Required("tank"): vol.All(str, vol.Length(max=64)),
     }
@@ -169,7 +169,7 @@ async def ws_set_tank(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/complete_onboarding", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/complete_onboarding", vol.Required("entry_id"): str}
 )
 @websocket_api.async_response
 async def ws_complete_onboarding(hass, connection, msg: dict[str, Any]) -> None:
@@ -183,7 +183,7 @@ async def ws_complete_onboarding(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/start_treatment",
+        vol.Required("type"): "chihiros_plus/start_treatment",
         vol.Required("entry_id"): str,
         vol.Required("program"): str,
         vol.Optional("days", default=3): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=60)),
@@ -204,7 +204,7 @@ async def ws_start_treatment(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/stop_treatment", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/stop_treatment", vol.Required("entry_id"): str}
 )
 @websocket_api.async_response
 async def ws_stop_treatment(hass, connection, msg: dict[str, Any]) -> None:
@@ -216,7 +216,7 @@ async def ws_stop_treatment(hass, connection, msg: dict[str, Any]) -> None:
     connection.send_result(msg["id"], coordinator.snapshot())
 
 
-@websocket_api.websocket_command({vol.Required("type"): "aqua_chihiros/list_switches"})
+@websocket_api.websocket_command({vol.Required("type"): "chihiros_plus/list_switches"})
 @callback
 def ws_list_switches(hass, connection, msg: dict[str, Any]) -> None:
     """Switchable entities the user can pick as their CO₂ switch."""
@@ -230,7 +230,7 @@ def ws_list_switches(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_co2",
+        vol.Required("type"): "chihiros_plus/set_co2",
         vol.Required("entry_id"): str,
         vol.Required("switch"): vol.Any(None, str),
         vol.Optional("before_on", default=60): vol.All(int, vol.Range(min=0, max=360)),
@@ -249,7 +249,7 @@ async def ws_set_co2(hass, connection, msg: dict[str, Any]) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "aqua_chihiros/set_rgbw",
+        vol.Required("type"): "chihiros_plus/set_rgbw",
         vol.Required("entry_id"): str,
         vol.Required("r"): vol.All(int, vol.Range(min=0, max=100)),
         vol.Required("g"): vol.All(int, vol.Range(min=0, max=100)),
@@ -268,7 +268,7 @@ async def ws_set_rgbw(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/emergency_off", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/emergency_off", vol.Required("entry_id"): str}
 )
 @websocket_api.async_response
 async def ws_emergency_off(hass, connection, msg: dict[str, Any]) -> None:
@@ -281,7 +281,7 @@ async def ws_emergency_off(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/identify", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/identify", vol.Required("entry_id"): str}
 )
 @websocket_api.async_response
 async def ws_identify(hass, connection, msg: dict[str, Any]) -> None:
@@ -294,7 +294,7 @@ async def ws_identify(hass, connection, msg: dict[str, Any]) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "aqua_chihiros/reconnect", vol.Required("entry_id"): str}
+    {vol.Required("type"): "chihiros_plus/reconnect", vol.Required("entry_id"): str}
 )
 @websocket_api.async_response
 async def ws_reconnect(hass, connection, msg: dict[str, Any]) -> None:

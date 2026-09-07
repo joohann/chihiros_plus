@@ -36,6 +36,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: ${{ steps.ver.outputs.tag }} — AquaChihiros
+          name: ${{ steps.ver.outputs.tag }} — Chihiros Plus
           target_commitish: ${{ github.sha }}
           generate_release_notes: true

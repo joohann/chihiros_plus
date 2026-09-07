@@ -1,6 +1,6 @@
 /**
  * Chihiros custom icon set — registers the brand dragon so it can be used as
- * the sidebar/panel icon via "chihiros:dragon" (Home Assistant custom icons,
+ * the sidebar/panel icon via "chihiros_plus:dragon" (Home Assistant custom icons,
  * the same mechanism HACS uses). Monochrome silhouette in a 24x24 viewBox,
  * follows the theme colour like any Material Design icon.
  */
@@ -10,7 +10,7 @@ const ICONS = {
 };
 
 window.customIcons = window.customIcons || {};
-window.customIcons["chihiros"] = {
+window.customIcons["chihiros_plus"] = {
   getIcon: (name) =>
     Promise.resolve(ICONS[name] ? { path: ICONS[name] } : undefined),
   getIconList: () => Object.keys(ICONS).map((name) => ({ name })),

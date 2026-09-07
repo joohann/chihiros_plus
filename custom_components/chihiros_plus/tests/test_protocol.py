@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from aqua_chihiros.fake_device import FakeChihirosDevice, FrameError
-from aqua_chihiros.protocol import (
+from chihiros_plus.fake_device import FakeChihirosDevice, FrameError
+from chihiros_plus.protocol import (
     RGBW,
     MessageIdCounter,
     enter_auto_mode,
@@ -16,7 +16,7 @@ from aqua_chihiros.protocol import (
     set_time,
     xor_checksum,
 )
-from aqua_chihiros.protocol.parser import StatusResponse
+from chihiros_plus.protocol.parser import StatusResponse
 
 
 def test_checksum_matches_documented_example():

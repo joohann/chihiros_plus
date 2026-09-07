@@ -107,6 +107,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._manual = RGBW(0, 0, 0, 0)
         self._revert_cancel = None
         self._apply_task = None
+        self._identifying = False       # true while blinking for identify
         self._maintenance = False
         self._pending: tuple[Phase, RGBW] = (Phase.NIGHT, RGBW(0, 0, 0, 0))
         # Active timed treatment (Blackout / Algae Protection for N days), if
@@ -356,16 +357,22 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         await self.async_request_refresh()
         return ok
 
-    async def async_identify(self, cycles: int = 3) -> bool:
-        """Blink the lamp (white) a few times so the user can spot which
-        physical unit this entry is, then restore the normal output."""
+    async def async_identify(self, cycles: int = 4) -> bool:
+        """Blink the lamp a few times so the user can spot which physical unit
+        this entry is, then restore the normal output. Uses full brightness on
+        every channel and forces both states so nothing is deduped/skipped, and
+        pauses the background apply loop so it can't overwrite the blink."""
+        self._identifying = True
         ok = True
-        white, dark = RGBW(0, 0, 0, 100), RGBW(0, 0, 0, 0)
-        for _ in range(max(1, cycles)):
-            ok = await self.controller.apply_rgbw(white, force=True) and ok
-            await asyncio.sleep(0.4)
-            await self.controller.apply_rgbw(dark, force=True)
-            await asyncio.sleep(0.4)
+        full, dark = RGBW(100, 100, 100, 100), RGBW(0, 0, 0, 0)
+        try:
+            for _ in range(max(1, cycles)):
+                ok = await self.controller.apply_rgbw(full, force=True) and ok
+                await asyncio.sleep(0.55)
+                await self.controller.apply_rgbw(dark, force=True)
+                await asyncio.sleep(0.55)
+        finally:
+            self._identifying = False
         await self.async_request_refresh()   # back to the real desired output
         return ok
 
@@ -403,6 +410,8 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         return self._build_snapshot(phase, desired)
 
     def _schedule_apply(self) -> None:
+        if self._identifying:
+            return  # don't fight the identify blink; it restores state when done
         if self._apply_task is not None and not self._apply_task.done():
             return  # one apply in flight; it will pick up the latest _pending
         self._apply_task = self.hass.async_create_background_task(

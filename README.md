@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="custom_components/aqua_chihiros/brand/logo.svg" width="180" alt="AquaChihiros">
+  <img src="custom_components/chihiros_plus/brand/logo.svg" width="180" alt="Chihiros Plus">
 </p>
 
-<h1 align="center">AquaChihiros</h1>
+<h1 align="center">Chihiros Plus</h1>
 
 <p align="center">
   A standalone Home Assistant integration for Chihiros BLE aquarium lights —
@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/joohann/aqua_chihiros/actions/workflows/hassfest.yml"><img src="https://github.com/joohann/aqua_chihiros/actions/workflows/hassfest.yml/badge.svg" alt="hassfest"></a>
-  <a href="https://github.com/joohann/aqua_chihiros/actions/workflows/validate.yml"><img src="https://github.com/joohann/aqua_chihiros/actions/workflows/validate.yml/badge.svg" alt="HACS"></a>
+  <a href="https://github.com/joohann/chihiros_plus/actions/workflows/hassfest.yml"><img src="https://github.com/joohann/chihiros_plus/actions/workflows/hassfest.yml/badge.svg" alt="hassfest"></a>
+  <a href="https://github.com/joohann/chihiros_plus/actions/workflows/validate.yml"><img src="https://github.com/joohann/chihiros_plus/actions/workflows/validate.yml/badge.svg" alt="HACS"></a>
   <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
 </p>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=joohann&repository=aqua_chihiros&category=integration">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=joohann&repository=chihiros_plus&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS">
   </a>
 </p>
@@ -80,12 +80,12 @@ have another model and want to help verify it, open an issue.
 ### HACS (recommended)
 
 1. HACS → ⋮ → **Custom repositories**.
-2. Add `https://github.com/joohann/aqua_chihiros` as category **Integration**.
+2. Add `https://github.com/joohann/chihiros_plus` as category **Integration**.
 3. Install **Chihiros Aquarium Light**, then restart Home Assistant.
 
 ### Manual
 
-Copy `custom_components/aqua_chihiros/` into your Home Assistant
+Copy `custom_components/chihiros_plus/` into your Home Assistant
 `config/custom_components/` directory and restart.
 
 ## Adding a lamp
@@ -142,11 +142,11 @@ cure.
 
 ## Services
 
-- `aqua_chihiros.apply_preset` — switch to a built-in program
-- `aqua_chihiros.set_rgbw` — set all four channels directly (manual mode)
-- `aqua_chihiros.start_algae_protection` — run algae protection for N days, then revert
-- `aqua_chihiros.sync_time` — push HA local time to the lamp's clock
-- `aqua_chihiros.emergency_off` — attempt immediate off and report if confirmed
+- `chihiros_plus.apply_preset` — switch to a built-in program
+- `chihiros_plus.set_rgbw` — set all four channels directly (manual mode)
+- `chihiros_plus.start_algae_protection` — run algae protection for N days, then revert
+- `chihiros_plus.sync_time` — push HA local time to the lamp's clock
+- `chihiros_plus.emergency_off` — attempt immediate off and report if confirmed
 
 ## Fail-safe behaviour & limitations
 
@@ -174,7 +174,7 @@ cure.
 
 ```yaml
 # Developer Tools → Actions → logger.set_level
-custom_components.aqua_chihiros: debug
+custom_components.chihiros_plus: debug
 bleak_retry_connector: debug
 habluetooth: debug
 ```

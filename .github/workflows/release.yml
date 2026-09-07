@@ -4,7 +4,7 @@ name: Publish release
 # Two ways to trigger:
 #   - push a version tag (v*), or
 #   - run manually (workflow_dispatch): the version is read from
-#     custom_components/aqua_chihiros/manifest.json and the tag is created
+#     custom_components/chihiros_plus/manifest.json and the tag is created
 #     automatically at the current commit.
 
 on:
@@ -28,7 +28,7 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
-            v=$(python3 -c "import json;print(json.load(open('custom_components/aqua_chihiros/manifest.json'))['version'])")
+            v=$(python3 -c "import json;print(json.load(open('custom_components/chihiros_plus/manifest.json'))['version'])")
             echo "tag=v$v" >> "$GITHUB_OUTPUT"
           fi
 

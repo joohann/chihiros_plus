@@ -1,7 +1,7 @@
 /**
  * <majikan-donate> — herbruikbare "Steun de ontwikkelaar"-knop met
  * bevestigingspopup, voor alle Majikan-integraties (NL-Alert, Nida,
- * Aqua Chihiros, ...).
+ * Chihiros Plus, ...).
  *
  * Eén bron van waarheid: elke integratie kopieert dit ene bestand naar zijn
  * eigen frontend/-map (HACS levert per integratie zijn eigen frontend) en
@@ -13,15 +13,16 @@
  *   <majikan-donate inline accent="--nl-accent"></majikan-donate>   // inline
  *
  * Attributen (optioneel):
- *   accent  CSS-variabelenaam voor de accentkleur van die integratie
- *           (bijv. "--nl-accent", "--nida-gold"). Valt terug op --primary-color.
- *   label   Knoptekst.  Standaard: "Steun de ontwikkelaar".
- *   made    Wat er onder Majikan valt.  Standaard: "diverse open-source projecten".
- *   url     PayPal-donatielink.  Standaard: de hosted Donate-knop hieronder.
+ *   accent   CSS-variabelenaam voor de accentkleur van die integratie
+ *            (bijv. "--nl-accent", "--chihiros-accent"). Valt terug op --primary-color.
+ *   label    Knoptekst.  Standaard: "Support the developer".
+ *   made     Wat er onder Majikan valt.  Standaard: "several open-source projects".
+ *   url      PayPal-donatielink.  Standaard: de hosted Donate-knop hieronder.
+ *   contact  Optionele contact-/formulier-URL. Toont een extra "Contact"-link
+ *            in de bevestigingspopup (opent in een nieuw tabblad).
  *
  * De popup rendert in document.body (portal) met inline-stijlen, zodat een
- * transform-voorouder in het paneel de fixed-overlay niet kan breken — die
- * valkuil staat expliciet in Nida's panel beschreven.
+ * transform-voorouder in het paneel de fixed-overlay niet kan breken.
  */
 
 const DEFAULT_URL =
@@ -39,6 +40,7 @@ const STRINGS = {
       `<strong>Majikan</strong> is the developer's nickname behind ${made}.`,
     go: "Continue",
     cancel: "Cancel",
+    contact: "✉ Contact me",
   },
   nl: {
     label: "Steun de ontwikkelaar",
@@ -51,6 +53,7 @@ const STRINGS = {
       `${made} worden ontwikkeld.`,
     go: "Doorgaan",
     cancel: "Annuleren",
+    contact: "✉ Neem contact op",
   },
 };
 
@@ -93,6 +96,7 @@ class MajikanDonate extends HTMLElement {
     this._label = this.getAttribute("label") || this._t.label;
     this._made = this.getAttribute("made") || this._t.made;
     this._url = this.getAttribute("url") || DEFAULT_URL;
+    this._contact = this.getAttribute("contact") || "";
 
     const accent = `var(${this._accentVar}, var(--primary-color, #ffe500))`;
     const root = this.attachShadow({ mode: "open" });
@@ -161,6 +165,10 @@ class MajikanDonate extends HTMLElement {
             ${this._t.redirect}</p>
           <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:${dim};">
             ${this._t.note(this._made)}</p>
+          ${this._contact ? `<p style="margin:14px 0 0;font-size:13px;">
+            <a href="${this._contact}" target="_blank" rel="noopener"
+               style="color:${accent};font-weight:600;text-decoration:none;"
+               >${this._t.contact}</a></p>` : ""}
         </div>
         <div style="display:flex;gap:12px;align-items:center;padding:12px 20px;">
           <button id="mjk-go" style="font:inherit;font-weight:500;font-size:14px;

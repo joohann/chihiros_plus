@@ -32,6 +32,8 @@ const PROGRAMS = PROGRAM_GROUPS.flatMap(([, items]) => items);
 // Programs that can be run as a bounded treatment -> default number of days.
 const TREATMENTS = { blackout: 3, algae_protection_early: 7 };
 const CH = [["R", "#e23d55"], ["G", "#2fae54"], ["B", "#3f7fe0"], ["W", "#b79a3f"]];
+// Contact/support-form link shown in the donate popup (majikan-donate).
+const CONTACT_URL = "https://majikan.nl/contact-me";
 const CONN_LABEL = {
   connected: "Connected", degraded: "Degraded", reconnecting: "Reconnecting",
   offline: "Offline", error: "Error", unknown: "Unknown",
@@ -315,9 +317,9 @@ class ChihirosPanel extends HTMLElement {
     if (!Array.isArray(dev.desired)) dev.desired = [0, 0, 0, 0];
     if (!Number.isFinite(dev.brightness)) dev.brightness = 0;
     const off = dev.brightness === 0;
-    // First-time setup: a freshly added lamp shows a guided wizard instead of
-    // the full controls until the user finishes (or skips) it.
-    if (dev.onboarded === false) { this._renderWizard(dev); return; }
+    // First-time setup: while any lamp is un-onboarded (or a wizard is in
+    // progress), show the guided wizard instead of the full controls.
+    if (this._wiz || this._pendingLamps().length) { this._renderWizard(); return; }
     root.innerHTML = `
       <div class="head">
         <div>
@@ -430,8 +432,8 @@ class ChihirosPanel extends HTMLElement {
           </div>` : ""}
       </section>
 
-      <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>
-      <majikan-donate accent="--chihiros-accent"></majikan-donate>`;
+      <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}"></majikan-donate>
+      <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
 
     this.shadowRoot.querySelectorAll("[data-prog]").forEach((b) =>
       b.addEventListener("click", () => this._setProgram(b.dataset.prog)));
@@ -688,18 +690,31 @@ class ChihirosPanel extends HTMLElement {
   }
 
   // -- first-time setup wizard ----------------------------------------------
-  _renderWizard(dev) {
+  _pendingLamps() { return this._devices.filter((d) => d.onboarded === false); }
+  _wizDev() { return this._devices.find((d) => d.entry_id === this._wiz.entry_id) || null; }
+
+  // Load the per-lamp defaults into the wizard state for the chosen lamp.
+  _wizInitLamp(dev) {
+    const w = this._wiz;
+    dev = dev || {};
+    w.tank = dev.name || "Aquarium";
+    w.program = dev.program_key || "plant_growth";
+    w.follow_sun = dev.follow_sun !== false;
+    w.start = minToTime(Number.isFinite(dev.start_minute) ? dev.start_minute : 480);
+    w.len = (Number.isFinite(dev.day_length_minutes) ? dev.day_length_minutes : 480) / 60;
+    w.co2 = (dev.co2 && dev.co2.switch) || "";
+    w.also = [];                     // other pending lamps to group in at once
+  }
+
+  _renderWizard() {
+    const pending = this._pendingLamps();
     if (!this._wiz) {
       this._wiz = {
-        step: "intro",
+        step: pending.length > 1 ? "pick" : "intro",
         mode: null,
-        tank: this._selected || dev.name,
-        program: dev.program_key || "plant_growth",
-        follow_sun: dev.follow_sun !== false,
-        start: minToTime(dev.start_minute),
-        len: dev.day_length_minutes / 60,
-        co2: (dev.co2 && dev.co2.switch) || "",
+        entry_id: (pending[0] || this._dev() || {}).entry_id,
       };
+      this._wizInitLamp(this._wizDev());
     }
     const w = this._wiz;
     const total = w.mode === "advanced" ? 5 : 3;
@@ -714,12 +729,27 @@ class ChihirosPanel extends HTMLElement {
       </div>`;
 
     let body;
-    if (w.step === "intro") {
+    if (w.step === "pick") {
       body = `
+        <div class="weyebrow">Setup · ${pending.length} lamps</div>
+        <h2 class="wh">Which lamp first?</h2>
+        <p class="wlead">You added several lamps. Pick one to set up — tap 💡 to blink
+          a lamp if you're not sure which is which.</p>
+        <div class="wpicklist">
+          ${pending.map((d) => `
+            <div class="wpick">
+              <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡</button>
+              <span class="wpi"><b>${esc(d.name)}</b>${d.model ? `<small>${esc(d.model)}</small>` : ""}</span>
+              <button class="wbtn small" data-pick="${d.entry_id}">Set up ›</button>
+            </div>`).join("")}
+        </div>`;
+    } else if (w.step === "intro") {
+      body = `
+        ${pending.length > 1 ? `<button class="wback" data-go="pick" style="margin-bottom:12px">← Choose another lamp</button>` : ""}
         <div class="weyebrow">Welcome</div>
         <h2 class="wh">Let's set up your lamp</h2>
-        <p class="wlead">Your new Chihiros lamp was found. Choose how much to set up
-          now — you can change everything later.</p>
+        <p class="wlead">Setting up <b>${esc((this._wizDev() || {}).name || "your lamp")}</b>. Choose how much to
+          set up now — you can change everything later.</p>
         <div class="wpaths">
           <button class="wpath" data-mode="basic">
             <span class="wic">⚡</span>
@@ -733,14 +763,33 @@ class ChihirosPanel extends HTMLElement {
         <p class="wdisclaimer">Not affiliated with Chihiros. “Chihiros” and its logos are
           trademarks of their respective owners; this is an independent, unofficial integration.</p>`;
     } else if (w.step === "tank") {
+      const existing = [...new Set(this._devices
+        .filter((d) => d.onboarded !== false && d.entry_id !== w.entry_id && d.tank)
+        .map((d) => d.tank))];
       body = `${dots(0)}
         <div class="weyebrow">Step 1 · Tank</div>
         <h2 class="wh">What's this aquarium called?</h2>
-        <p class="wlead">The name shows at the top of the panel. Lamps sharing a tank
-          name are controlled together.</p>
-        <label class="wf"><span>Tank name</span>
+        <p class="wlead">The name shows at the top of the panel. Give two lamps the same
+          tank name to control them together.</p>
+        ${existing.length ? `
+          <div class="grouplbl">Add to an existing tank</div>
+          <div class="progs" style="margin-bottom:16px">${existing.map((t) =>
+            `<button class="prog ${w.tank === t ? "on" : ""}" data-wtank="${esc(t)}">🐟 ${esc(t)}</button>`).join("")}</div>` : ""}
+        <label class="wf"><span>${existing.length ? "…or a new tank name" : "Tank name"}</span>
           <input type="text" id="wiz-tank" value="${esc(w.tank)}" placeholder="e.g. Living room 60L"></label>
         <button class="idbtn" id="wiz-identify" title="Blink this lamp">💡 Identify this lamp</button>
+        ${(() => {
+          const others = this._pendingLamps().filter((d) => d.entry_id !== w.entry_id);
+          return others.length ? `
+            <div class="grouplbl" style="margin-top:18px">Also add these lamps to this tank</div>
+            <div class="wpicklist">${others.map((d) => `
+              <div class="wpick">
+                <input type="checkbox" class="alsobox" data-also="${d.entry_id}" ${w.also.includes(d.entry_id) ? "checked" : ""}>
+                <span class="wpi"><b>${esc(d.name)}</b>${d.model ? `<small>${esc(d.model)}</small>` : ""}</span>
+                <button class="idbtn" data-identify="${d.entry_id}" type="button" title="Blink this lamp">💡</button>
+              </div>`).join("")}</div>
+            <p class="sunnote">They'll get the same tank, program and schedule. Set up individually later to differ.</p>` : "";
+        })()}
         ${nav("intro", "program", "Next")}`;
     } else if (w.step === "program") {
       const isLast = w.mode === "basic";
@@ -806,14 +855,19 @@ class ChihirosPanel extends HTMLElement {
         <div class="confirm pending" style="justify-content:center"><span class="spin"></span>Setting up…</div></div>`;
     } else if (w.step === "done") {
       const label = (PROGRAMS.find((p) => p[0] === w.program) || [null, w.program])[1];
+      const doneIds = [w.entry_id, ...(w.also || [])];
+      const remaining = this._devices.filter((d) => d.onboarded === false && !doneIds.includes(d.entry_id)).length;
+      const nLamps = doneIds.length;
       body = `<div class="wcenter">
         <div class="wdone">✓</div>
         <h2 class="wh">Done — ${esc(w.tank)} is set up</h2>
-        <p class="wlead">The <b>${esc(label)}</b> program is now running.</p>
-        <button class="wbtn" data-go="__finish">Go to the panel →</button></div>`;
+        <p class="wlead">${nLamps > 1 ? `${nLamps} lamps grouped · ` : ""}The <b>${esc(label)}</b> program is now running.</p>
+        <button class="wbtn" data-go="__next">${remaining ? `Set up next lamp (${remaining}) →` : "Go to the panel →"}</button></div>`;
     }
 
-    this.shadowRoot.getElementById("root").innerHTML = `<section class="card wcard">${body}</section>`;
+    this.shadowRoot.getElementById("root").innerHTML =
+      `<section class="card wcard">${body}</section>
+       <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}"></majikan-donate>`;
     this._bindWizard();
   }
 
@@ -823,20 +877,34 @@ class ChihirosPanel extends HTMLElement {
     r.querySelectorAll("[data-mode]").forEach((b) =>
       b.addEventListener("click", () => { w.mode = b.dataset.mode; this._wizGo("tank"); }));
     r.querySelectorAll("[data-wprog]").forEach((b) =>
-      b.addEventListener("click", () => { w.program = b.dataset.wprog; this._renderWizard(this._dev()); }));
+      b.addEventListener("click", () => { w.program = b.dataset.wprog; this._renderWizard(); }));
+    r.querySelectorAll("[data-pick]").forEach((b) =>
+      b.addEventListener("click", () => this._wizPick(b.dataset.pick)));
+    r.querySelectorAll("[data-wtank]").forEach((b) =>
+      b.addEventListener("click", () => { this._wizCapture(); w.tank = b.dataset.wtank; this._renderWizard(); }));
+    r.querySelectorAll("[data-identify]").forEach((b) =>
+      b.addEventListener("click", () => {
+        this._ws({ type: "chihiros_plus/identify", entry_id: b.dataset.identify }).catch(() => {});
+        this._toast("Blinking lamp…");
+      }));
     r.querySelectorAll("[data-go]").forEach((b) =>
       b.addEventListener("click", () => this._wizNav(b.dataset.go)));
     const fs = r.getElementById("wiz-fs");
-    if (fs) fs.addEventListener("change", () => { w.follow_sun = fs.checked; this._renderWizard(this._dev()); });
+    if (fs) fs.addEventListener("change", () => { w.follow_sun = fs.checked; this._renderWizard(); });
     const len = r.getElementById("wiz-len");
     const lenVal = r.getElementById("wiz-len-val");
     if (len) len.addEventListener("input", () => { w.len = +len.value; if (lenVal) lenVal.textContent = `${w.len.toFixed(1)} h`; });
     const idb = r.getElementById("wiz-identify");
     if (idb) idb.addEventListener("click", () => {
-      const dev = this._dev();
-      if (dev) this._ws({ type: "chihiros_plus/identify", entry_id: dev.entry_id }).catch(() => {});
+      if (w.entry_id) this._ws({ type: "chihiros_plus/identify", entry_id: w.entry_id }).catch(() => {});
       this._toast("Blinking lamp…");
     });
+  }
+
+  _wizPick(entryId) {
+    this._wiz.entry_id = entryId;
+    this._wizInitLamp(this._wizDev());
+    this._wizGo("intro");
   }
 
   // Capture the current step's field values before navigating away.
@@ -845,22 +913,24 @@ class ChihirosPanel extends HTMLElement {
     const tank = r.getElementById("wiz-tank"); if (tank) w.tank = tank.value.trim() || w.tank;
     const start = r.getElementById("wiz-start"); if (start) w.start = start.value || w.start;
     const co2 = r.getElementById("wiz-co2"); if (co2) w.co2 = co2.value;
+    const boxes = r.querySelectorAll(".alsobox");
+    if (boxes.length) w.also = [...boxes].filter((b) => b.checked).map((b) => b.dataset.also);
   }
 
   _wizNav(go) {
     this._wizCapture();
     if (go === "__apply") { this._wizApply(); return; }
-    if (go === "__finish") { this._wiz = null; this._load(); return; }
+    if (go === "__finish" || go === "__next") { this._wiz = null; this._load(); return; }
     this._wizGo(go);
   }
 
-  _wizGo(step) { this._wiz.step = step; this._renderWizard(this._dev()); }
+  _wizGo(step) { this._wiz.step = step; this._renderWizard(); }
 
   async _wizApply() {
     const w = this._wiz;
-    // Fix the target lamps up front: renaming the tank changes how _members()
-    // resolves, so every command must go to these ids, not to a live lookup.
-    const ids = this._memberIds();
+    // Set up the chosen lamp plus any others ticked to share this tank, by id,
+    // so renaming the tank can't misdirect the follow-up commands.
+    const ids = [w.entry_id, ...(w.also || [])];
     const send = (build) => Promise.allSettled(ids.map((id) => this._ws(build(id))));
     this._wizGo("applying");
     try {
@@ -1264,6 +1334,14 @@ const STYLES = `
   .wbtn { border:0; border-radius:12px; padding:13px 22px; font:inherit; font-weight:700; font-size:15px;
     cursor:pointer; background:var(--chihiros-accent); color:#fff; }
   .wbtn:active { transform:translateY(1px); }
+  .wbtn.small { padding:9px 15px; font-size:13.5px; }
+  .wpicklist { display:flex; flex-direction:column; gap:10px; }
+  .wpick { display:flex; align-items:center; gap:12px; border:1px solid var(--divider-color);
+    background:var(--secondary-background-color); border-radius:14px; padding:12px 14px; }
+  .wpick .wpi { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .wpick .wpi b { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wpick .wpi small { font-size:12px; color:var(--secondary-text-color); }
+  .alsobox { width:18px; height:18px; accent-color:var(--chihiros-accent); flex:none; cursor:pointer; }
   .wrev { border:1px solid var(--divider-color); border-radius:12px; overflow:hidden; }
   .wr { display:flex; justify-content:space-between; gap:12px; padding:13px 15px; font-size:14px; }
   .wr + .wr { border-top:1px solid var(--divider-color); }

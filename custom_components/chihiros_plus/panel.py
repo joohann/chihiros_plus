@@ -29,6 +29,7 @@ PANEL_ICON = "chihiros_plus:dragon"  # custom brand dragon (frontend/chihiros-ic
 STATIC_URL = "/chihiros_plus_panel_files"
 FRONTEND_SCRIPT_URL = f"{STATIC_URL}/chihiros-panel.js"
 ICONS_SCRIPT_URL = f"{STATIC_URL}/chihiros-icons.js"
+DONATE_SCRIPT_URL = f"{STATIC_URL}/majikan-donate.js"
 _STATIC_KEY = f"{DOMAIN}_panel_static_registered"
 _PANEL_KEY = f"{DOMAIN}_panel_registered"
 _ICONS_KEY = f"{DOMAIN}_icons_registered"
@@ -61,6 +62,8 @@ async def async_register_icons(hass: HomeAssistant) -> None:
     await async_register_static(hass)
     version = await _asset_version(hass)
     frontend.add_extra_js_url(hass, f"{ICONS_SCRIPT_URL}?v={version}")
+    # The reusable donate web component (<majikan-donate>) used in the panel.
+    frontend.add_extra_js_url(hass, f"{DONATE_SCRIPT_URL}?v={version}")
     hass.data[_ICONS_KEY] = True
 
 

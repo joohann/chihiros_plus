@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     type ChihirosConfigEntry = ConfigEntry[ChihirosCoordinator]
 
 
+def sidebar_wanted(hass) -> bool:
+    """The shared sidebar panel shows unless every entry has it switched off."""
+    from .const import DOMAIN
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return True
+    return any(e.options.get("sidebar", True) for e in entries)
+
+
 def _platforms():
     from homeassistant.const import Platform
 
@@ -92,7 +102,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> 
     # command type just overwrites its handler). NOT guarded by a one-shot flag,
     # so a reload after adding new commands actually registers them.
     async_register_ws(hass)
-    await panel.async_register_panel(hass)
+    if sidebar_wanted(hass):
+        await panel.async_register_panel(hass)
+    else:
+        panel.async_remove_panel(hass)
     # NOTE: intentionally no options-update reload listener. Runtime settings
     # (program, schedule, follow-sun) are persisted via async_update_entry and
     # applied live by the coordinator; reloading on every option change would

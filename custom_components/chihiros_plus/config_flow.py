@@ -12,8 +12,14 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import callback
 
 from . import CONF_MODEL
 from .const import DOMAIN, FAMILY_NAME_PREFIX, UART_SERVICE_UUID
@@ -46,6 +52,11 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._discovered: BluetoothServiceInfoBleak | None = None
         self._discovered_map: dict[str, BluetoothServiceInfoBleak] = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return ChihirosOptionsFlow()
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -114,4 +125,41 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
             # New lamps start un-onboarded so the panel offers a first-time
             # setup. Existing entries have no such key -> treated as onboarded.
             options={"onboarded": False},
+        )
+
+
+class ChihirosOptionsFlow(OptionsFlow):
+    """Options: currently just whether the panel appears in the sidebar."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        opts = self.config_entry.options
+        if user_input is not None:
+            show = bool(user_input.get("sidebar", True))
+            # Apply to this entry now; add/remove the shared panel to match.
+            from . import panel, sidebar_wanted
+
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                self.hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "sidebar": show}
+                )
+            if sidebar_wanted(self.hass):
+                await panel.async_register_panel(self.hass)
+            else:
+                panel.async_remove_panel(self.hass)
+            # Preserve every other option key on this entry.
+            return self.async_create_entry(
+                title="", data={**opts, "sidebar": show}
+            )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "sidebar", default=bool(opts.get("sidebar", True))
+                    ): bool
+                }
+            ),
         )

@@ -481,7 +481,7 @@ class ChihirosPanel extends HTMLElement {
           </div>` : ""}
       </section>
 
-      <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}"></majikan-donate>
+      <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}" version="${esc(dev.version || "")}"></majikan-donate>
       <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
 
     const mselbtn = this.shadowRoot.getElementById("prog-mselbtn");
@@ -938,7 +938,7 @@ class ChihirosPanel extends HTMLElement {
 
     this.shadowRoot.getElementById("root").innerHTML =
       `<section class="card wcard">${body}</section>
-       <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}"></majikan-donate>`;
+       <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}" version="${esc((this._devices[0] || {}).version || "")}"></majikan-donate>`;
     this._bindWizard();
   }
 

@@ -518,6 +518,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "moonlight": self._moonlight,
             "moonlight_available": self._program_key not in self._NO_MOONLIGHT,
             "sidebar": bool(self.entry.options.get("sidebar", True)),
+            "version": self.hass.data.get(DOMAIN, {}).get("version", ""),
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
             "co2": self._co2_snapshot(),

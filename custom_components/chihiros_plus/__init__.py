@@ -95,8 +95,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> 
     await hass.config_entries.async_forward_entry_setups(entry, _platforms())
 
     # Websocket API + custom sidebar panel — registered once for the integration.
+    from homeassistant.loader import async_get_integration
+
     from . import panel
+    from .const import DOMAIN
     from .websocket import async_register as async_register_ws
+
+    # Expose the integration version so the panel footer can show it.
+    integration = await async_get_integration(hass, DOMAIN)
+    hass.data.setdefault(DOMAIN, {})["version"] = integration.version or ""
 
     # Register websocket commands on every setup (idempotent — re-registering a
     # command type just overwrites its handler). NOT guarded by a one-shot flag,

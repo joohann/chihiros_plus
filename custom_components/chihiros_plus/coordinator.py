@@ -28,7 +28,7 @@ from .const import DOMAIN
 from .controller import Calibration, LightController
 from .devices import ChihirosModel
 from .engine import PRESETS, LightEngine, LightState, Phase, ProgramParameters
-from .engine.programs import NATURAL_DAY
+from .engine.programs import MOONLIGHT, NATURAL_DAY
 from .protocol import RGBW
 from .transport import Transport
 from .watchdog import ConnectionState, Watchdog, WatchdogConfig
@@ -100,6 +100,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         # Follow the real local sunrise/sunset by default; manual start/length
         # edits switch this off ("deviate"). Persisted in the entry options.
         self._follow_sun: bool = bool(entry.options.get("follow_sun", True))
+        # Optional add-on: run Moonlight through the night on top of a day
+        # program (instead of the lamp going fully off). Persisted in options.
+        self._moonlight: bool = bool(entry.options.get("moonlight", False))
         self._program: ProgramParameters = NATURAL_DAY
         self._rebuild_engine()
         self._previous_program_key: str | None = None
@@ -166,9 +169,29 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         ov = {k: v for k, v in self._overrides.items() if v is not None}
         return program.with_overrides(**ov) if ov else program
 
+    # Programs that are themselves dark/night — the moonlight add-on doesn't
+    # apply to these.
+    _NO_MOONLIGHT = ("moonlight", "blackout")
+
     def _rebuild_engine(self) -> None:
         base = PRESETS.get(self._program_key, NATURAL_DAY)
-        self._program = self._apply_overrides(base)
+        program = self._apply_overrides(base)
+        if self._moonlight and self._program_key not in self._NO_MOONLIGHT:
+            # Fill the whole night (lights-off -> next lights-on) with moonlight.
+            night = max(0, 1440 - program.day_length_minutes)
+            if night > 0:
+                intensity = program.moonlight_intensity or MOONLIGHT.moonlight_intensity
+                color = (
+                    program.moonlight_color
+                    if program.moonlight_intensity
+                    else MOONLIGHT.moonlight_color
+                )
+                program = program.with_overrides(
+                    moonlight_minutes=night,
+                    moonlight_intensity=intensity,
+                    moonlight_color=color,
+                )
+        self._program = program
         self._engine = LightEngine(self._program)
 
     async def async_set_program(self, key: str) -> None:
@@ -230,6 +253,22 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.hass.config_entries.async_update_entry(
             self.entry, options={**self.entry.options, "onboarded": True}
         )
+        await self.async_request_refresh()
+
+    async def async_set_sidebar(self, enabled: bool) -> None:
+        """Persist whether the custom panel shows in the sidebar (per entry)."""
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "sidebar": bool(enabled)}
+        )
+
+    async def async_set_moonlight(self, enabled: bool) -> None:
+        """Enable/disable running Moonlight through the night on a day program."""
+        self._moonlight = bool(enabled)
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "moonlight": self._moonlight}
+        )
+        self._rebuild_engine()
+        self._mode = MODE_PROGRAM
         await self.async_request_refresh()
 
     async def async_set_follow_sun(self, enabled: bool) -> None:
@@ -476,6 +515,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "start_minute": self._program.start_minute,
             "day_length_minutes": self._program.day_length_minutes,
             "follow_sun": self._follow_sun,
+            "moonlight": self._moonlight,
+            "moonlight_available": self._program_key not in self._NO_MOONLIGHT,
+            "sidebar": bool(self.entry.options.get("sidebar", True)),
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
             "co2": self._co2_snapshot(),

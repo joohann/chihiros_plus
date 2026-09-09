@@ -28,6 +28,8 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_program)
     websocket_api.async_register_command(hass, ws_set_schedule)
     websocket_api.async_register_command(hass, ws_set_follow_sun)
+    websocket_api.async_register_command(hass, ws_set_moonlight)
+    websocket_api.async_register_command(hass, ws_set_sidebar)
     websocket_api.async_register_command(hass, ws_set_maintenance)
     websocket_api.async_register_command(hass, ws_set_tank)
     websocket_api.async_register_command(hass, ws_complete_onboarding)
@@ -131,6 +133,48 @@ async def ws_set_follow_sun(hass, connection, msg: dict[str, Any]) -> None:
         connection.send_error(msg["id"], "not_found", "Unknown device")
         return
     await coordinator.async_set_follow_sun(msg["enabled"])
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chihiros_plus/set_sidebar",
+        vol.Required("entry_id"): str,
+        vol.Required("enabled"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_set_sidebar(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    # One shared panel: apply the choice to every entry, then add/remove it.
+    for c in _coordinators(hass):
+        await c.async_set_sidebar(msg["enabled"])
+    from . import panel, sidebar_wanted
+
+    if sidebar_wanted(hass):
+        await panel.async_register_panel(hass)
+    else:
+        panel.async_remove_panel(hass)
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chihiros_plus/set_moonlight",
+        vol.Required("entry_id"): str,
+        vol.Required("enabled"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_set_moonlight(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    await coordinator.async_set_moonlight(msg["enabled"])
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

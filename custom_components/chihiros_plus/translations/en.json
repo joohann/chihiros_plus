@@ -30,7 +30,9 @@
           "unknown": "Unknown"
         }
       },
-      "program": { "name": "Program" },
+      "program": {
+        "name": "Program"
+      },
       "phase": {
         "name": "Light phase",
         "state": {
@@ -45,11 +47,17 @@
           "night": "Night"
         }
       },
-      "unreachable_for": { "name": "Unreachable for" }
+      "unreachable_for": {
+        "name": "Unreachable for"
+      }
     },
     "binary_sensor": {
-      "bluetooth_connected": { "name": "Bluetooth connected" },
-      "state_confirmed": { "name": "Output confirmed" }
+      "bluetooth_connected": {
+        "name": "Bluetooth connected"
+      },
+      "state_confirmed": {
+        "name": "Output confirmed"
+      }
     },
     "select": {
       "program": {
@@ -70,17 +78,35 @@
       }
     },
     "number": {
-      "red": { "name": "Red" },
-      "green": { "name": "Green" },
-      "blue": { "name": "Blue" },
-      "white": { "name": "White" }
+      "red": {
+        "name": "Red"
+      },
+      "green": {
+        "name": "Green"
+      },
+      "blue": {
+        "name": "Blue"
+      },
+      "white": {
+        "name": "White"
+      }
     },
     "button": {
-      "sync_time": { "name": "Sync time" },
-      "refresh": { "name": "Refresh" },
-      "reconnect": { "name": "Reconnect" },
-      "maintenance": { "name": "Maintenance (white 100%)" },
-      "emergency_off": { "name": "Emergency off" }
+      "sync_time": {
+        "name": "Sync time"
+      },
+      "refresh": {
+        "name": "Refresh"
+      },
+      "reconnect": {
+        "name": "Reconnect"
+      },
+      "maintenance": {
+        "name": "Maintenance (white 100%)"
+      },
+      "emergency_off": {
+        "name": "Emergency off"
+      }
     }
   },
   "services": {
@@ -88,31 +114,52 @@
       "name": "Apply preset",
       "description": "Switch the lamp to a built-in lighting program.",
       "fields": {
-        "preset": { "name": "Preset", "description": "The program to activate." }
+        "preset": {
+          "name": "Preset",
+          "description": "The program to activate."
+        }
       }
     },
     "set_rgbw": {
       "name": "Set RGBW",
       "description": "Set all four channels directly (manual mode).",
       "fields": {
-        "red": { "name": "Red", "description": "Red channel 0-100%." },
-        "green": { "name": "Green", "description": "Green channel 0-100%." },
-        "blue": { "name": "Blue", "description": "Blue channel 0-100%." },
-        "white": { "name": "White", "description": "White channel 0-100%." }
+        "red": {
+          "name": "Red",
+          "description": "Red channel 0-100%."
+        },
+        "green": {
+          "name": "Green",
+          "description": "Green channel 0-100%."
+        },
+        "blue": {
+          "name": "Blue",
+          "description": "Blue channel 0-100%."
+        },
+        "white": {
+          "name": "White",
+          "description": "White channel 0-100%."
+        }
       }
     },
     "start_algae_protection": {
       "name": "Start algae protection",
       "description": "Temporarily run the algae-protection program, then revert.",
       "fields": {
-        "days": { "name": "Days", "description": "How long before reverting to the previous program." }
+        "days": {
+          "name": "Days",
+          "description": "How long before reverting to the previous program."
+        }
       }
     },
     "start_blackout": {
       "name": "Start blackout",
       "description": "Turn the light fully off for a number of days as an algae/cyanobacteria treatment, then automatically revert to the previous program. Supporting measure, not a cure — it also stresses plants.",
       "fields": {
-        "days": { "name": "Days", "description": "How long to keep the light off before reverting (default 3)." }
+        "days": {
+          "name": "Days",
+          "description": "How long to keep the light off before reverting (default 3)."
+        }
       }
     },
     "emergency_off": {
@@ -122,6 +169,17 @@
     "sync_time": {
       "name": "Sync time",
       "description": "Push Home Assistant's local time to the lamp's internal clock."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Chihiros Plus options",
+        "data": {
+          "sidebar": "Show the Chihiros Plus panel in the sidebar"
+        },
+        "description": "Turn this off to hide the custom panel from Home Assistant's sidebar. You can re-enable it here at any time."
+      }
     }
   }
 }

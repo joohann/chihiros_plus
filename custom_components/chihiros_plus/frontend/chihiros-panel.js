@@ -63,6 +63,7 @@ class ChihirosPanel extends HTMLElement {
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
     this._collapsed = { program: true, setup: true, schedule: true, tanks: true, co2: true };
     this._wiz = null;              // first-time setup wizard state (null = not in it)
+    this._progOpen = false;        // program multi-select dropdown open?
   }
 
   set narrow(value) {
@@ -189,6 +190,64 @@ class ChihirosPanel extends HTMLElement {
     } catch (err) {
       this._confirming = false;
       this._toast("Failed to change program", "error");
+      await this._load();
+    }
+  }
+
+  // A Home-Assistant-style multi-select: one day program (radio) plus an
+  // optional Moonlight add-on that runs through the night.
+  _progDropdown(dev) {
+    const base = PROGRAM_GROUPS.filter(([label]) => !/night/i.test(label));
+    const selLabel = `${esc(dev.program_name)}${dev.moonlight ? " + Moonlight" : ""}`;
+    const count = 1 + (dev.moonlight ? 1 : 0);
+    const rows = base.map(([label, items]) => `
+      <div class="mgroup">${esc(label.replace(/^[^A-Za-z]+/, ""))}</div>
+      ${items.map(([k, n]) => `
+        <button class="mrow" type="button" data-mprog="${k}" data-name="${esc(n.toLowerCase())}">
+          <span class="mcheck ${k === dev.program_key ? "on" : ""}"></span>
+          <span class="mrowname">${n}</span>
+        </button>`).join("")}`).join("");
+    const moon = `
+      <div class="mgroup">Add-on</div>
+      <button class="mrow" type="button" data-moon data-name="moonlight night"
+        ${dev.moonlight_available ? "" : "disabled"}>
+        <span class="mcheck box ${dev.moonlight ? "on" : ""}"></span>
+        <span class="mrowname">Moonlight <small class="muted">— at night</small></span>
+      </button>`;
+    return `
+      <div class="msel">
+        <button class="mselbtn" id="prog-mselbtn" type="button">
+          <span class="msellabel">${selLabel}</span>
+          <span class="mselcount">${count}</span>
+          <span class="mselchev">${this._progOpen ? "▴" : "▾"}</span>
+        </button>
+        <div class="mselpop" id="prog-mselpop" ${this._progOpen ? "" : "hidden"}>
+          <input class="mselsearch" id="prog-search" placeholder="Search…">
+          <div class="mselist">${rows}${moon}</div>
+        </div>
+      </div>`;
+  }
+
+  async _setSidebar(enabled) {
+    this._lastInteraction = Date.now();
+    this._toast(enabled ? "Panel shown in sidebar" : "Panel hidden from sidebar", "ok");
+    try {
+      await this._ws({ type: "chihiros_plus/set_sidebar", entry_id: this._dev().entry_id, enabled });
+    } catch (err) { this._toast("Could not change sidebar", "error"); }
+  }
+
+  async _setMoonlight(enabled) {
+    this._lastInteraction = Date.now();
+    this._members().forEach((d) => { d.moonlight = enabled; });   // optimistic
+    this._confirming = true;
+    this._render();
+    this._toast(enabled ? "Moonlight at night on" : "Moonlight off");
+    try {
+      await this._fanout((id) => ({ type: "chihiros_plus/set_moonlight", entry_id: id, enabled }));
+      await this._awaitConfirm();
+    } catch (err) {
+      this._confirming = false;
+      this._toast("Could not change moonlight", "error");
       await this._load();
     }
   }
@@ -365,33 +424,23 @@ class ChihirosPanel extends HTMLElement {
             : `<div class="confirm unk">? not confirmed — desired only</div>`}
       </section>
 
-      <section class="card ctlcard">
-        <div class="ctl" data-collapse="program">
-          <span class="ic">🌱</span>
-          <span class="ctxt"><small>Program</small><b>${esc(dev.program_name)}</b></span>
-          <span class="go">${this._collapsed.program ? "Change ›" : "Close ▾"}</span>
+      <section class="card ctlcard progcard">
+        <div class="ctl static">
+          <span class="ctxt" style="width:100%"><small>Program</small>${this._progDropdown(dev)}</span>
         </div>
-        <div class="progopts" ${this._collapsed.program ? "hidden" : ""}>
-          ${PROGRAM_GROUPS.map(([label, items]) => `
-            <div class="grouplbl">${label}</div>
-            <div class="progs">
-              ${items.map(([k, n]) => `<button class="prog ${k === dev.program_key ? "on" : ""}" data-prog="${k}">${n}</button>`).join("")}
-            </div>`).join("")}
-          ${TREATMENTS[dev.program_key] && !dev.treatment ? `
-            <div class="treatstart">
-              <span class="muted">Run as timed treatment:</span>
-              <input type="number" id="treatdays" min="1" max="14" value="${TREATMENTS[dev.program_key]}">
-              <span class="muted">days</span>
-              <button class="btn small" id="starttreat">▶ Start</button>
-            </div>` : ""}
-        </div>
+        ${TREATMENTS[dev.program_key] && !dev.treatment ? `
+          <div class="treatstart">
+            <span class="muted">Run as timed treatment:</span>
+            <input type="number" id="treatdays" min="1" max="14" value="${TREATMENTS[dev.program_key]}">
+            <span class="muted">days</span>
+            <button class="btn small" id="starttreat">Start</button>
+          </div>` : ""}
       </section>
 
       <section class="card ctlcard">
         <div class="ctl maint" id="maint">
-          <span class="ic">🧽</span>
           <span class="ctxt"><small>Maintenance</small><b>${dev.maintenance ? "On · white 100%" : "Off"}</b></span>
-          <span class="go">${dev.maintenance ? "Stop ›" : "Start ›"}</span>
+          <span class="go">${dev.maintenance ? "Stop" : "Start"}</span>
         </div>
       </section>
 
@@ -405,38 +454,58 @@ class ChihirosPanel extends HTMLElement {
 
       <section class="card ctlcard">
         <div class="setrow" data-collapse="setup">
-          <span class="ic">⚙️</span>
           <span class="ctxt"><b>Setup</b><small>Schedule · CO₂ · tanks &amp; lamps</small></span>
           <span class="chev">${this._collapsed.setup ? "›" : "▾"}</span>
         </div>
         ${!this._collapsed.setup ? `
           <div class="setbody">
             <div class="setrow sub" data-collapse="schedule">
-              <span class="ic">🌇</span>
               <span class="ctxt"><b>Schedule &amp; timing</b><small>${this._scheduleValue(dev)}</small></span>
               <span class="chev">${this._collapsed.schedule ? "›" : "▾"}</span>
             </div>
             ${!this._collapsed.schedule ? `<div class="subbody">${this._scheduleContent(dev)}</div>` : ""}
             <div class="setrow sub" data-collapse="co2">
-              <span class="ic">🫧</span>
               <span class="ctxt"><b>CO₂</b><small>${this._co2Value(dev)}</small></span>
               <span class="chev">${this._collapsed.co2 ? "›" : "▾"}</span>
             </div>
             ${!this._collapsed.co2 ? `<div class="subbody">${this._co2Content(dev)}</div>` : ""}
             <div class="setrow sub" data-collapse="tanks">
-              <span class="ic">🐟</span>
               <span class="ctxt"><b>Tanks &amp; lamps</b><small>${this._tankValue()}</small></span>
               <span class="chev">${this._collapsed.tanks ? "›" : "▾"}</span>
             </div>
             ${!this._collapsed.tanks ? `<div class="subbody">${this._tankContent()}</div>` : ""}
+            <label class="setrow sub sidebarrow">
+              <span class="ctxt"><b>Show in sidebar</b><small>Hide the Chihiros Plus panel; re-enable via the integration's Configure</small></span>
+              <input type="checkbox" id="sidebar-toggle" ${dev.sidebar === false ? "" : "checked"}>
+            </label>
           </div>` : ""}
       </section>
 
       <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}"></majikan-donate>
       <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
 
-    this.shadowRoot.querySelectorAll("[data-prog]").forEach((b) =>
-      b.addEventListener("click", () => this._setProgram(b.dataset.prog)));
+    const mselbtn = this.shadowRoot.getElementById("prog-mselbtn");
+    const mselpop = this.shadowRoot.getElementById("prog-mselpop");
+    if (mselbtn && mselpop) mselbtn.addEventListener("click", () => {
+      this._progOpen = !this._progOpen;
+      mselpop.hidden = !this._progOpen;
+      mselbtn.querySelector(".mselchev").textContent = this._progOpen ? "▴" : "▾";
+      if (this._progOpen) { const s = this.shadowRoot.getElementById("prog-search"); if (s) s.focus(); }
+    });
+    this.shadowRoot.querySelectorAll("[data-mprog]").forEach((b) =>
+      b.addEventListener("click", () => { this._progOpen = false; this._setProgram(b.dataset.mprog); }));
+    const moonRow = this.shadowRoot.querySelector("[data-moon]");
+    if (moonRow) moonRow.addEventListener("click", () => {
+      if (moonRow.hasAttribute("disabled")) return;
+      this._setMoonlight(!this._dev().moonlight);
+    });
+    const psearch = this.shadowRoot.getElementById("prog-search");
+    if (psearch) psearch.addEventListener("input", () => {
+      const q = psearch.value.trim().toLowerCase();
+      this.shadowRoot.querySelectorAll(".mrow").forEach((row) => {
+        row.hidden = q && !row.dataset.name.includes(q);
+      });
+    });
     this.shadowRoot.querySelectorAll("[data-sel]").forEach((b) =>
       b.addEventListener("click", () => {
         this._selected = b.dataset.sel;
@@ -452,6 +521,8 @@ class ChihirosPanel extends HTMLElement {
       inp.addEventListener("change", () => this._setTank(inp.dataset.tank, inp.value.trim())));
     this.shadowRoot.querySelectorAll("[data-identify]").forEach((b) =>
       b.addEventListener("click", () => this._identify(b.dataset.identify)));
+    const sidebarToggle = this.shadowRoot.getElementById("sidebar-toggle");
+    if (sidebarToggle) sidebarToggle.addEventListener("change", () => this._setSidebar(sidebarToggle.checked));
 
     const co2apply = () => {
       const sw = this.shadowRoot.getElementById("co2-switch").value || null;
@@ -774,7 +845,7 @@ class ChihirosPanel extends HTMLElement {
         ${existing.length ? `
           <div class="grouplbl">Add to an existing tank</div>
           <div class="progs" style="margin-bottom:16px">${existing.map((t) =>
-            `<button class="prog ${w.tank === t ? "on" : ""}" data-wtank="${esc(t)}">🐟 ${esc(t)}</button>`).join("")}</div>` : ""}
+            `<button class="prog ${w.tank === t ? "on" : ""}" data-wtank="${esc(t)}">${esc(t)}</button>`).join("")}</div>` : ""}
         <label class="wf"><span>${existing.length ? "…or a new tank name" : "Tank name"}</span>
           <input type="text" id="wiz-tank" value="${esc(w.tank)}" placeholder="e.g. Living room 60L"></label>
         <button class="idbtn" id="wiz-identify" title="Blink this lamp">💡 Identify this lamp</button>
@@ -799,7 +870,7 @@ class ChihirosPanel extends HTMLElement {
         <p class="wlead">This sets the colour and brightness curve across the day.
           <b>Plant Growth</b> is a good start for planted tanks.</p>
         ${PROGRAM_GROUPS.slice(0, 2).map(([label, items]) => `
-          <div class="grouplbl">${label}</div>
+          <div class="grouplbl">${esc(label.replace(/^[^A-Za-z]+/, ""))}</div>
           <div class="progs">${items.map(([k, n]) =>
             `<button class="prog ${k === w.program ? "on" : ""}" data-wprog="${k}">${n}</button>`).join("")}</div>`).join("")}
         ${nav("tank", isLast ? "review" : "schedule", isLast ? "Review" : "Next")}`;
@@ -1162,6 +1233,7 @@ const STYLES = `
 
   /* Big control rows (Program, Maintenance, Setup). */
   .card.ctlcard { padding:0; overflow:hidden; }
+  .card.ctlcard.progcard { overflow:visible; }
   .ctl, .setrow { display:flex; align-items:center; gap:14px; padding:18px 20px;
     cursor:pointer; user-select:none; }
   .ctl:hover, .setrow:hover { background:color-mix(in srgb, var(--primary-text-color) 3%, transparent); }
@@ -1170,6 +1242,39 @@ const STYLES = `
   .ctxt small { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
     color:var(--secondary-text-color); font-weight:700; }
   .ctxt b { font-size:17px; font-weight:600; }
+  .ctl.static { cursor:default; }
+  .ctl.static:hover { background:transparent; }
+  /* Program multi-select (HA-style) */
+  .msel { position:relative; margin-top:6px; }
+  .mselbtn { width:100%; display:flex; align-items:center; gap:10px; cursor:pointer;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); border-radius:11px; padding:11px 13px; font:inherit; }
+  .msellabel { flex:1; text-align:left; font-size:15px; font-weight:600; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  .mselcount { flex:none; background:var(--chihiros-accent); color:#fff; font-size:12px;
+    font-weight:700; min-width:22px; height:22px; border-radius:999px; display:inline-flex;
+    align-items:center; justify-content:center; padding:0 6px; }
+  .mselchev { flex:none; color:var(--secondary-text-color); font-size:12px; }
+  .mselpop { position:absolute; z-index:6; left:0; right:0; top:calc(100% + 6px);
+    background:var(--card-background-color); border:1px solid var(--divider-color);
+    border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,.35); padding:8px; }
+  .mselsearch { width:100%; font:inherit; font-size:14px; padding:9px 11px; border-radius:9px;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); margin-bottom:6px; }
+  .mselist { max-height:280px; overflow-y:auto; }
+  .mgroup { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:700;
+    color:var(--secondary-text-color); padding:10px 8px 4px; }
+  .mrow { width:100%; display:flex; align-items:center; gap:12px; cursor:pointer;
+    border:0; background:transparent; color:var(--primary-text-color); font:inherit;
+    padding:9px 8px; border-radius:9px; text-align:left; }
+  .mrow:hover { background:var(--secondary-background-color); }
+  .mrow[disabled] { opacity:.4; cursor:not-allowed; }
+  .mcheck { flex:none; width:20px; height:20px; border-radius:50%; border:2px solid var(--divider-color); position:relative; }
+  .mcheck.box { border-radius:6px; }
+  .mcheck.on { border-color:var(--chihiros-accent); background:var(--chihiros-accent); }
+  .mcheck.on::after { content:"✓"; position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; color:#fff; font-size:12px; font-weight:800; }
+  .mrowname { flex:1; font-size:14.5px; font-weight:600; }
   .go { flex:none; font-size:13.5px; font-weight:600; color:var(--chihiros-accent); }
   .ctl.maint .go { color:var(--chihiros-accent); }
   .chev { flex:none; color:var(--secondary-text-color); font-size:14px; }
@@ -1180,6 +1285,8 @@ const STYLES = `
   .setrow.sub .ic { font-size:18px; }
   .setrow.sub .ctxt b { font-size:15px; }
   .setrow.sub .ctxt small { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
+  .sidebarrow { cursor:pointer; }
+  .sidebarrow input[type=checkbox] { width:20px; height:20px; accent-color:var(--chihiros-accent); flex:none; cursor:pointer; }
   .subbody { padding:2px 20px 18px; display:flex; flex-direction:column; gap:14px; }
 
   /* Devices card: compact, quiet. */

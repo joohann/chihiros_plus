@@ -40,7 +40,7 @@ const STRINGS = {
       `<strong>Majikan</strong> is the developer's nickname behind ${made}.`,
     go: "Continue",
     cancel: "Cancel",
-    contact: "✉ Contact me",
+    contact: "Contact me",
   },
   nl: {
     label: "Steun de ontwikkelaar",
@@ -53,7 +53,7 @@ const STRINGS = {
       `${made} worden ontwikkeld.`,
     go: "Doorgaan",
     cancel: "Annuleren",
-    contact: "✉ Neem contact op",
+    contact: "Neem contact op",
   },
 };
 
@@ -165,10 +165,6 @@ class MajikanDonate extends HTMLElement {
             ${this._t.redirect}</p>
           <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:${dim};">
             ${this._t.note(this._made)}</p>
-          ${this._contact ? `<p style="margin:14px 0 0;font-size:13px;">
-            <a href="${this._contact}" target="_blank" rel="noopener"
-               style="color:${accent};font-weight:600;text-decoration:none;"
-               >${this._t.contact}</a></p>` : ""}
         </div>
         <div style="display:flex;gap:12px;align-items:center;padding:12px 20px;">
           <button id="mjk-go" style="font:inherit;font-weight:500;font-size:14px;
@@ -178,6 +174,16 @@ class MajikanDonate extends HTMLElement {
             font-size:14px;cursor:pointer;padding:8px 16px;border-radius:8px;
             background:transparent;color:${accent};border:1px solid ${accent};"
             >${this._t.cancel}</button>
+          ${this._contact ? `<span style="flex:1"></span>
+          <a href="${this._contact}" target="_blank" rel="noopener"
+             style="font:inherit;font-weight:500;font-size:14px;text-decoration:none;
+             display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+             border-radius:8px;background:transparent;color:${accent};
+             border:1px solid ${accent};"><svg viewBox="0 0 24 24" width="15"
+             height="15" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+             ><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"
+             /></svg>${this._t.contact}</a>` : ""}
         </div>
       </div>`;
     document.body.appendChild(ov);

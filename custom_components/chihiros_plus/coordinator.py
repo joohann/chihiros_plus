@@ -103,6 +103,14 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         # Optional add-on: run Moonlight through the night on top of a day
         # program (instead of the lamp going fully off). Persisted in options.
         self._moonlight: bool = bool(entry.options.get("moonlight", False))
+        # How moonlight ends: "all_night" (until next lights-on), "duration"
+        # (moonlight_hours after lights-off), "time" (a clock end time) or
+        # "switch" (only while a chosen entity is on/off). Persisted in options.
+        self._moonlight_mode: str = entry.options.get("moonlight_mode", "all_night")
+        self._moonlight_hours: float = float(entry.options.get("moonlight_hours", 3))
+        self._moonlight_off_minute: int = int(entry.options.get("moonlight_off_minute", 1380))
+        self._moonlight_switch: str | None = entry.options.get("moonlight_switch")
+        self._moonlight_invert: bool = bool(entry.options.get("moonlight_invert", False))
         self._program: ProgramParameters = NATURAL_DAY
         self._rebuild_engine()
         self._previous_program_key: str | None = None
@@ -177,8 +185,18 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         base = PRESETS.get(self._program_key, NATURAL_DAY)
         program = self._apply_overrides(base)
         if self._moonlight and self._program_key not in self._NO_MOONLIGHT:
-            # Fill the whole night (lights-off -> next lights-on) with moonlight.
+            # How long moonlight runs after lights-off. "all_night"/"switch"
+            # fill the whole night (switch is then gated live in _desired_state);
+            # "duration" caps to N hours; "time" ends at a clock time.
             night = max(0, 1440 - program.day_length_minutes)
+            minutes = night
+            if self._moonlight_mode == "duration":
+                minutes = min(night, max(0, round(self._moonlight_hours * 60)))
+            elif self._moonlight_mode == "time":
+                day_end_clock = (program.start_minute + program.day_length_minutes) % 1440
+                delta = (self._moonlight_off_minute - day_end_clock) % 1440
+                minutes = min(night, delta)
+            night = minutes
             if night > 0:
                 intensity = program.moonlight_intensity or MOONLIGHT.moonlight_intensity
                 color = (
@@ -261,11 +279,38 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             self.entry, options={**self.entry.options, "sidebar": bool(enabled)}
         )
 
-    async def async_set_moonlight(self, enabled: bool) -> None:
-        """Enable/disable running Moonlight through the night on a day program."""
+    async def async_set_moonlight(
+        self,
+        enabled: bool,
+        mode: str | None = None,
+        hours: float | None = None,
+        off_minute: int | None = None,
+        switch: str | None = None,
+        invert: bool | None = None,
+    ) -> None:
+        """Configure Moonlight-at-night: on/off, how it ends (all night / a set
+        duration / a clock time / a switch), and the switch state that gates it."""
         self._moonlight = bool(enabled)
+        if mode in ("all_night", "duration", "time", "switch"):
+            self._moonlight_mode = mode
+        if hours is not None:
+            self._moonlight_hours = max(0.5, min(12, float(hours)))
+        if off_minute is not None:
+            self._moonlight_off_minute = max(0, min(1439, int(off_minute)))
+        self._moonlight_switch = switch or None
+        if invert is not None:
+            self._moonlight_invert = bool(invert)
         self.hass.config_entries.async_update_entry(
-            self.entry, options={**self.entry.options, "moonlight": self._moonlight}
+            self.entry,
+            options={
+                **self.entry.options,
+                "moonlight": self._moonlight,
+                "moonlight_mode": self._moonlight_mode,
+                "moonlight_hours": self._moonlight_hours,
+                "moonlight_off_minute": self._moonlight_off_minute,
+                "moonlight_switch": self._moonlight_switch,
+                "moonlight_invert": self._moonlight_invert,
+            },
         )
         self._rebuild_engine()
         self._mode = MODE_PROGRAM
@@ -427,6 +472,19 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _desired_state(self) -> tuple[Phase, RGBW]:
         if self._mode == MODE_PROGRAM:
             state: LightState = self._engine.get_state(dt_util.now())
+            # Switch-gated moonlight: only glow while the chosen entity is in
+            # the chosen state (on, or off when inverted).
+            if (
+                self._moonlight
+                and self._moonlight_mode == "switch"
+                and self._moonlight_switch
+                and state.phase == Phase.MOONLIGHT
+            ):
+                st = self.hass.states.get(self._moonlight_switch)
+                is_on = st is not None and st.state == "on"
+                active = (not is_on) if self._moonlight_invert else is_on
+                if not active:
+                    return Phase.NIGHT, RGBW(0, 0, 0, 0)
             return state.phase, state.rgbw
         # manual / off: hold the user's colour, no phase from the engine
         return Phase.NIGHT if self._mode == MODE_OFF else Phase.PEAK, self._manual
@@ -517,6 +575,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "follow_sun": self._follow_sun,
             "moonlight": self._moonlight,
             "moonlight_available": self._program_key not in self._NO_MOONLIGHT,
+            "moonlight_mode": self._moonlight_mode,
+            "moonlight_hours": self._moonlight_hours,
+            "moonlight_off_minute": self._moonlight_off_minute,
+            "moonlight_switch": self._moonlight_switch,
+            "moonlight_invert": self._moonlight_invert,
             "sidebar": bool(self.entry.options.get("sidebar", True)),
             "version": self.hass.data.get(DOMAIN, {}).get("version", ""),
             "maintenance": self._maintenance,

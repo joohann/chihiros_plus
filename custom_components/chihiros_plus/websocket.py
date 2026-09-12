@@ -166,6 +166,11 @@ async def ws_set_sidebar(hass, connection, msg: dict[str, Any]) -> None:
         vol.Required("type"): "chihiros_plus/set_moonlight",
         vol.Required("entry_id"): str,
         vol.Required("enabled"): bool,
+        vol.Optional("mode"): vol.In(["all_night", "duration", "time", "switch"]),
+        vol.Optional("hours"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=12)),
+        vol.Optional("off_minute"): vol.All(int, vol.Range(min=0, max=1439)),
+        vol.Optional("switch"): vol.Any(None, str),
+        vol.Optional("invert"): bool,
     }
 )
 @websocket_api.async_response
@@ -174,7 +179,10 @@ async def ws_set_moonlight(hass, connection, msg: dict[str, Any]) -> None:
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Unknown device")
         return
-    await coordinator.async_set_moonlight(msg["enabled"])
+    await coordinator.async_set_moonlight(
+        msg["enabled"], msg.get("mode"), msg.get("hours"),
+        msg.get("off_minute"), msg.get("switch"), msg.get("invert"),
+    )
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

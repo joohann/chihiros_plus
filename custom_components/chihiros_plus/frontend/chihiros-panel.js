@@ -61,7 +61,7 @@ class ChihirosPanel extends HTMLElement {
     this._playRAF = null;
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
-    this._collapsed = { program: true, setup: true, schedule: true, tanks: true, co2: true };
+    this._collapsed = { program: true, setup: true, schedule: true, moonlight: true, tanks: true, co2: true };
     this._wiz = null;              // first-time setup wizard state (null = not in it)
     this._progOpen = false;        // program multi-select dropdown open?
   }
@@ -236,19 +236,38 @@ class ChihirosPanel extends HTMLElement {
     } catch (err) { this._toast("Could not change sidebar", "error"); }
   }
 
-  async _setMoonlight(enabled) {
+  _moonlightConfig(dev) {
+    return {
+      enabled: !!dev.moonlight,
+      mode: dev.moonlight_mode || "all_night",
+      hours: Number.isFinite(dev.moonlight_hours) ? dev.moonlight_hours : 3,
+      off_minute: Number.isFinite(dev.moonlight_off_minute) ? dev.moonlight_off_minute : 1380,
+      switch: dev.moonlight_switch || "",
+      invert: !!dev.moonlight_invert,
+    };
+  }
+
+  // Merge a change into the current moonlight config and push all fields, so
+  // toggling on/off never wipes the mode/duration/time/switch settings. A
+  // single optimistic render (no confirm/reload loop) keeps the view steady.
+  async _applyMoonlight(patch) {
     this._lastInteraction = Date.now();
-    this._members().forEach((d) => { d.moonlight = enabled; });   // optimistic
-    this._confirming = true;
+    const cfg = { ...this._moonlightConfig(this._dev()), ...patch };
+    this._members().forEach((d) => {
+      d.moonlight = cfg.enabled; d.moonlight_mode = cfg.mode;
+      d.moonlight_hours = cfg.hours; d.moonlight_off_minute = cfg.off_minute;
+      d.moonlight_switch = cfg.switch || null; d.moonlight_invert = cfg.invert;
+    });
     this._render();
-    this._toast(enabled ? "Moonlight at night on" : "Moonlight off");
+    this._toast(cfg.enabled ? "Moonlight updated" : "Moonlight off");
     try {
-      await this._fanout((id) => ({ type: "chihiros_plus/set_moonlight", entry_id: id, enabled }));
-      await this._awaitConfirm();
+      await this._fanout((id) => ({
+        type: "chihiros_plus/set_moonlight", entry_id: id,
+        enabled: cfg.enabled, mode: cfg.mode, hours: cfg.hours,
+        off_minute: cfg.off_minute, switch: cfg.switch || null, invert: cfg.invert,
+      }));
     } catch (err) {
-      this._confirming = false;
       this._toast("Could not change moonlight", "error");
-      await this._load();
     }
   }
 
@@ -464,6 +483,11 @@ class ChihirosPanel extends HTMLElement {
               <span class="chev">${this._collapsed.schedule ? "›" : "▾"}</span>
             </div>
             ${!this._collapsed.schedule ? `<div class="subbody">${this._scheduleContent(dev)}</div>` : ""}
+            <div class="setrow sub" data-collapse="moonlight">
+              <span class="ctxt"><b>Moonlight</b><small>${this._moonlightValue(dev)}</small></span>
+              <span class="chev">${this._collapsed.moonlight ? "›" : "▾"}</span>
+            </div>
+            ${!this._collapsed.moonlight ? `<div class="subbody">${this._moonlightContent(dev)}</div>` : ""}
             <div class="setrow sub" data-collapse="co2">
               <span class="ctxt"><b>CO₂</b><small>${this._co2Value(dev)}</small></span>
               <span class="chev">${this._collapsed.co2 ? "›" : "▾"}</span>
@@ -497,7 +521,7 @@ class ChihirosPanel extends HTMLElement {
     const moonRow = this.shadowRoot.querySelector("[data-moon]");
     if (moonRow) moonRow.addEventListener("click", () => {
       if (moonRow.hasAttribute("disabled")) return;
-      this._setMoonlight(!this._dev().moonlight);
+      this._applyMoonlight({ enabled: !this._dev().moonlight });
     });
     const psearch = this.shadowRoot.getElementById("prog-search");
     if (psearch) psearch.addEventListener("input", () => {
@@ -534,6 +558,23 @@ class ChihirosPanel extends HTMLElement {
       const el = this.shadowRoot.getElementById(id);
       if (el) el.addEventListener("change", co2apply);
     });
+
+    const moonEnable = this.shadowRoot.getElementById("moon-enable");
+    if (moonEnable) moonEnable.addEventListener("change", () => this._applyMoonlight({ enabled: moonEnable.checked }));
+    const moonMode = this.shadowRoot.getElementById("moon-mode");
+    if (moonMode) moonMode.addEventListener("change", () => this._applyMoonlight({ mode: moonMode.value }));
+    const moonHours = this.shadowRoot.getElementById("moon-hours");
+    const moonHoursVal = this.shadowRoot.getElementById("moon-hours-val");
+    if (moonHours) {
+      moonHours.addEventListener("input", () => { if (moonHoursVal) moonHoursVal.textContent = `${(+moonHours.value).toFixed(1)} h`; });
+      moonHours.addEventListener("change", () => this._applyMoonlight({ hours: +moonHours.value }));
+    }
+    const moonTime = this.shadowRoot.getElementById("moon-time");
+    if (moonTime) moonTime.addEventListener("change", () => this._applyMoonlight({ off_minute: timeToMin(moonTime.value) }));
+    const moonSwitch = this.shadowRoot.getElementById("moon-switch");
+    if (moonSwitch) moonSwitch.addEventListener("change", () => this._applyMoonlight({ switch: moonSwitch.value }));
+    const moonInvert = this.shadowRoot.getElementById("moon-invert");
+    if (moonInvert) moonInvert.addEventListener("change", () => this._applyMoonlight({ invert: moonInvert.value === "off" }));
 
     const maint = this.shadowRoot.getElementById("maint");
     if (maint) maint.addEventListener("click", () => this._setMaintenance(!this._dev().maintenance));
@@ -1062,6 +1103,61 @@ class ChihirosPanel extends HTMLElement {
       ${dev.follow_sun
         ? `<div class="sunnote">Sunset anchored to the sun (${minToTime(dev.start_minute + dev.day_length_minutes)}). Lights start ${minToTime(dev.start_minute)} — change the length to shift the start.</div>`
         : `<div class="sunnote">Manual: ${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}.</div>`}`;
+  }
+
+  _moonlightValue(dev) {
+    if (!dev.moonlight_available) return "Not available for this program";
+    if (!dev.moonlight) return "Off";
+    const cfg = this._moonlightConfig(dev);
+    if (cfg.mode === "duration") return `${cfg.hours} h after lights-off`;
+    if (cfg.mode === "time") return `Until ${minToTime(cfg.off_minute)}`;
+    if (cfg.mode === "switch") {
+      const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
+      const state = cfg.invert ? "off" : "on";
+      return cfg.switch ? `While ${s ? s.name : cfg.switch} is ${state}` : "Follow a switch (pick one)";
+    }
+    return "All night";
+  }
+
+  _moonlightContent(dev) {
+    const cfg = this._moonlightConfig(dev);
+    if (!dev.moonlight_available) {
+      return `<p class="muted" style="font-size:12.5px;margin:0">Moonlight isn't available for
+        Blackout or the standalone Moonlight program.</p>`;
+    }
+    const opts = ['<option value="">— pick a switch —</option>'].concat(
+      (this._switches || []).map((s) =>
+        `<option value="${esc(s.entity_id)}" ${s.entity_id === cfg.switch ? "selected" : ""}>${esc(s.name)}</option>`)
+    ).join("");
+    return `
+      <label class="sunrow">
+        <input type="checkbox" id="moon-enable" ${cfg.enabled ? "checked" : ""}>
+        <span>🌙 Moonlight at night</span>
+      </label>
+      ${cfg.enabled ? `
+        <label class="field" style="min-width:100%"><span>Turn moonlight off…</span>
+          <select id="moon-mode">
+            <option value="all_night" ${cfg.mode === "all_night" ? "selected" : ""}>At next lights-on (all night)</option>
+            <option value="duration" ${cfg.mode === "duration" ? "selected" : ""}>After a set duration</option>
+            <option value="time" ${cfg.mode === "time" ? "selected" : ""}>At a set time</option>
+            <option value="switch" ${cfg.mode === "switch" ? "selected" : ""}>Based on a helper/switch</option>
+          </select></label>
+        ${cfg.mode === "duration" ? `
+          <label class="field"><span>Duration <b id="moon-hours-val">${cfg.hours.toFixed(1)} h</b></span>
+            <input type="range" id="moon-hours" min="0.5" max="12" step="0.5" value="${cfg.hours}"></label>` : ""}
+        ${cfg.mode === "time" ? `
+          <label class="field"><span>Off at</span>
+            <input type="time" id="moon-time" value="${minToTime(cfg.off_minute)}"></label>` : ""}
+        ${cfg.mode === "switch" ? `
+          <label class="field" style="min-width:100%"><span>Helper / switch</span>
+            <select id="moon-switch">${opts}</select></label>
+          <label class="field" style="min-width:100%"><span>Moonlight while this helper is…</span>
+            <select id="moon-invert">
+              <option value="on" ${cfg.invert ? "" : "selected"}>On</option>
+              <option value="off" ${cfg.invert ? "selected" : ""}>Off</option>
+            </select></label>
+          <p class="muted" style="font-size:12px;margin:6px 0 0">e.g. your <b>Night mode</b> boolean — moonlight glows only while it's in the chosen state (checked every ~30 s).</p>` : ""}
+      ` : ""}`;
   }
 
   _co2Value(dev) {

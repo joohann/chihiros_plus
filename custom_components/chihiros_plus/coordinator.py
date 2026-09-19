@@ -126,6 +126,18 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._treatment: dict | None = entry.options.get("treatment")
         if self._treatment:
             self._restore_treatment()
+        # Restore the last mode (manual colour / off) so a restart doesn't
+        # silently resume the program. Without this, turning the lamp off is
+        # forgotten on reboot and the program — including its all-night
+        # moonlight — comes back on, burning all night. A running treatment
+        # always implies program mode, so it wins.
+        if not self._treatment:
+            saved_mode = entry.options.get("mode")
+            if saved_mode in (MODE_MANUAL, MODE_OFF):
+                self._mode = saved_mode
+                m = entry.options.get("manual")
+                if isinstance(m, (list, tuple)) and len(m) == 4:
+                    self._manual = RGBW(*(max(0, min(100, int(c))) for c in m))
         # Optional CO₂ coupling: a user-chosen switch driven ON before lights on
         # and OFF before lights off, following the active program's photoperiod.
         self._co2_switch: str | None = entry.options.get("co2_switch")
@@ -133,6 +145,16 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._co2_before_off: int = int(entry.options.get("co2_before_off", 60))
 
     # -- program / mode control ---------------------------------------------
+
+    def _persist_mode(self) -> None:
+        """Persist the current mode (and manual colour) so a restart restores
+        it instead of silently falling back to the program."""
+        opts = {**self.entry.options, "mode": self._mode}
+        if self._mode in (MODE_MANUAL, MODE_OFF):
+            opts["manual"] = list(self._manual.as_tuple())
+        else:
+            opts.pop("manual", None)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
 
     @property
     def program_key(self) -> str:
@@ -221,7 +243,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._program_key = key
         self._rebuild_engine()
         self._mode = MODE_PROGRAM
-        opts = {**self.entry.options, "program": key}
+        opts = {**self.entry.options, "program": key, "mode": MODE_PROGRAM}
         opts.pop("treatment", None)
         self.hass.config_entries.async_update_entry(self.entry, options=opts)
         await self.async_request_refresh()
@@ -249,6 +271,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 **self.entry.options,
                 "overrides": self._overrides,
                 "follow_sun": self._follow_sun,
+                "mode": MODE_PROGRAM,
             },
         )
         self._rebuild_engine()
@@ -310,6 +333,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 "moonlight_off_minute": self._moonlight_off_minute,
                 "moonlight_switch": self._moonlight_switch,
                 "moonlight_invert": self._moonlight_invert,
+                "mode": MODE_PROGRAM,
             },
         )
         self._rebuild_engine()
@@ -321,7 +345,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._follow_sun = bool(enabled)
         self.hass.config_entries.async_update_entry(
             self.entry,
-            options={**self.entry.options, "follow_sun": self._follow_sun},
+            options={
+                **self.entry.options,
+                "follow_sun": self._follow_sun,
+                "mode": MODE_PROGRAM,
+            },
         )
         self._rebuild_engine()
         self._mode = MODE_PROGRAM
@@ -336,6 +364,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._program = program
         self._engine = LightEngine(program)
         self._mode = MODE_PROGRAM
+        self._persist_mode()
         await self.async_request_refresh()
 
     async def async_start_temporary_program(self, key: str, days: float) -> None:
@@ -365,7 +394,12 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._mode = MODE_PROGRAM
         self.hass.config_entries.async_update_entry(
             self.entry,
-            options={**self.entry.options, "program": key, "treatment": self._treatment},
+            options={
+                **self.entry.options,
+                "program": key,
+                "treatment": self._treatment,
+                "mode": MODE_PROGRAM,
+            },
         )
         self._schedule_revert(days * 86400)
         await self.async_request_refresh()
@@ -430,6 +464,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._maintenance = False
         self._manual = color
         self._mode = MODE_OFF if color == RGBW(0, 0, 0, 0) else MODE_MANUAL
+        self._persist_mode()
         await self.async_request_refresh()
 
     async def async_emergency_off(self) -> bool:
@@ -437,6 +472,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._maintenance = False
         self._mode = MODE_OFF
         self._manual = RGBW(0, 0, 0, 0)
+        self._persist_mode()
         ok = await self.controller.emergency_off()
         await self.async_request_refresh()
         return ok

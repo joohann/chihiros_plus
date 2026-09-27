@@ -29,6 +29,13 @@ from .controller import Calibration, LightController
 from .devices import ChihirosModel
 from .engine import PRESETS, LightEngine, LightState, Phase, ProgramParameters
 from .engine.programs import MOONLIGHT, NATURAL_DAY
+from .mode_state import (
+    MODE_MANUAL,
+    MODE_OFF,
+    MODE_PROGRAM,
+    persist_mode_options,
+    restore_mode,
+)
 from .protocol import RGBW
 from .transport import Transport
 from .watchdog import ConnectionState, Watchdog, WatchdogConfig
@@ -37,15 +44,14 @@ _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=30)
 
+# Mode constants (MODE_PROGRAM / MODE_MANUAL / MODE_OFF) and the pure
+# persist/restore logic live in mode_state (no HA imports, unit-tested there).
+
 # Default aquarium photoperiod when following the sun and the user hasn't set a
 # day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
 # an aquarium and promotes algae; 6–8 h is the usual recommendation, so we
 # default to a conservative 8 h ending at the real sunset.
 DEFAULT_PHOTOPERIOD_MINUTES = 8 * 60
-
-MODE_PROGRAM = "program"
-MODE_MANUAL = "manual"
-MODE_OFF = "off"
 
 
 @dataclass(slots=True)
@@ -131,13 +137,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         # forgotten on reboot and the program — including its all-night
         # moonlight — comes back on, burning all night. A running treatment
         # always implies program mode, so it wins.
-        if not self._treatment:
-            saved_mode = entry.options.get("mode")
-            if saved_mode in (MODE_MANUAL, MODE_OFF):
-                self._mode = saved_mode
-                m = entry.options.get("manual")
-                if isinstance(m, (list, tuple)) and len(m) == 4:
-                    self._manual = RGBW(*(max(0, min(100, int(c))) for c in m))
+        self._mode, self._manual = restore_mode(
+            entry.options.get("mode"),
+            entry.options.get("manual"),
+            bool(self._treatment),
+        )
         # Optional CO₂ coupling: a user-chosen switch driven ON before lights on
         # and OFF before lights off, following the active program's photoperiod.
         self._co2_switch: str | None = entry.options.get("co2_switch")
@@ -149,11 +153,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _persist_mode(self) -> None:
         """Persist the current mode (and manual colour) so a restart restores
         it instead of silently falling back to the program."""
-        opts = {**self.entry.options, "mode": self._mode}
-        if self._mode in (MODE_MANUAL, MODE_OFF):
-            opts["manual"] = list(self._manual.as_tuple())
-        else:
-            opts.pop("manual", None)
+        opts = persist_mode_options(self.entry.options, self._mode, self._manual)
         self.hass.config_entries.async_update_entry(self.entry, options=opts)
 
     @property

@@ -82,3 +82,28 @@ def test_emergency_off_reports_failure_when_unreachable():
     ok = asyncio.run(c.emergency_off())
     assert ok is False                  # cannot guarantee off with no link
     assert c.confirmed is None
+
+
+def test_deduped_output_hides_a_lost_link_until_forced():
+    # Why the coordinator's periodic health check forces a resend: with an
+    # unchanged, confirmed output nothing is written, so a lamp that dropped
+    # off stays "connected". A forced resend detects it (and re-asserts the
+    # output when the lamp is reachable).
+    tr = FakeTransport()
+    c = _controller(tr)
+    assert asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0))) is True
+    tr.offline = True
+    assert asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0))) is True   # deduped
+    assert c.watchdog.status.state.value == "connected"
+    assert asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0), force=True)) is False
+    assert c.watchdog.status.state.value != "connected"
+    assert c.confirmed is None
+
+
+def test_forced_resend_restores_output_after_lamp_reset():
+    tr = FakeTransport()
+    c = _controller(tr)
+    asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0)))
+    tr.device.channels = [0, 0, 0, 0]          # lamp power-cycled: dark
+    asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0), force=True))
+    assert tr.device.channels == [0, 0, 5, 0]

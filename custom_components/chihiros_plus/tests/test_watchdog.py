@@ -121,3 +121,45 @@ def test_notifications_reset_after_recovery():
     asyncio.run(wd.execute([_frame()]))            # recovers
     assert wd.status.highest_notification_sent == 0.0
     assert wd.poll_notification() is None
+
+
+def test_outage_is_timed_from_first_failure_not_last_success():
+    # An idle, deduped link can go a long time without traffic. When the next
+    # write finally fails, the outage starts *then* — not at the old success —
+    # so we don't jump straight to "critical" with a misleading duration.
+    clock = Clock()
+    tr = FakeTransport()
+    wd = _wd(tr, clock=clock)
+    asyncio.run(wd.execute([_frame()]))
+    clock.advance(3600)          # an hour of silence (output unchanged)
+    tr.offline = True
+    assert asyncio.run(wd.execute([_frame()])) is False
+    assert wd.poll_notification() is None           # just detected
+    clock.advance(130)
+    ev = wd.poll_notification()
+    assert ev is not None and ev.level == "warning"
+    assert ev.threshold_seconds == wd.config.warning_after
+
+
+def test_lamp_never_reached_since_startup_still_notifies():
+    clock = Clock()
+    tr = FakeTransport()
+    tr.offline = True
+    wd = _wd(tr, clock=clock)
+    assert asyncio.run(wd.execute([_frame()])) is False
+    assert wd.status.last_success is None
+    clock.advance(130)
+    ev = wd.poll_notification()
+    assert ev is not None and ev.level == "warning"
+
+
+def test_success_clears_outage_start():
+    clock = Clock()
+    tr = FakeTransport()
+    tr.offline = True
+    wd = _wd(tr, clock=clock)
+    asyncio.run(wd.execute([_frame()]))
+    assert wd.status.outage_since is not None
+    tr.offline = False
+    asyncio.run(wd.execute([_frame()]))
+    assert wd.status.outage_since is None

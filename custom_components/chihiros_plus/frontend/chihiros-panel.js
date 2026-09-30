@@ -61,7 +61,7 @@ class ChihirosPanel extends HTMLElement {
     this._playRAF = null;
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
-    this._collapsed = { program: true, setup: true, schedule: true, moonlight: true, tanks: true, co2: true };
+    this._collapsed = { program: true, setup: true, schedule: true, moonlight: true, tanks: true, co2: true, notify: true };
     this._wiz = null;              // first-time setup wizard state (null = not in it)
     this._progOpen = false;        // program multi-select dropdown open?
   }
@@ -148,6 +148,12 @@ class ChihirosPanel extends HTMLElement {
       const leader = this._leader();
       if (leader) {
         this._curve = await this._ws({ type: "chihiros_plus/get_curve", entry_id: leader.entry_id });
+      }
+      if (!this._notifyServices) {
+        try {
+          const r = await this._ws({ type: "chihiros_plus/list_notify_services" });
+          this._notifyServices = r.services || [];
+        } catch (e) { this._notifyServices = []; }
       }
       if (!this._switches) {
         try {
@@ -473,7 +479,7 @@ class ChihirosPanel extends HTMLElement {
 
       <section class="card ctlcard">
         <div class="setrow" data-collapse="setup">
-          <span class="ctxt"><b>Setup</b><small>Schedule · CO₂ · tanks &amp; lamps</small></span>
+          <span class="ctxt"><b>Setup</b><small>Schedule · CO₂ · notifications · tanks &amp; lamps</small></span>
           <span class="chev">${this._collapsed.setup ? "›" : "▾"}</span>
         </div>
         ${!this._collapsed.setup ? `
@@ -493,6 +499,11 @@ class ChihirosPanel extends HTMLElement {
               <span class="chev">${this._collapsed.co2 ? "›" : "▾"}</span>
             </div>
             ${!this._collapsed.co2 ? `<div class="subbody">${this._co2Content(dev)}</div>` : ""}
+            <div class="setrow sub" data-collapse="notify">
+              <span class="ctxt"><b>Notifications</b><small>${this._notifyValue(dev)}</small></span>
+              <span class="chev">${this._collapsed.notify ? "›" : "▾"}</span>
+            </div>
+            ${!this._collapsed.notify ? `<div class="subbody">${this._notifyContent(dev)}</div>` : ""}
             <div class="setrow sub" data-collapse="tanks">
               <span class="ctxt"><b>Tanks &amp; lamps</b><small>${this._tankValue()}</small></span>
               <span class="chev">${this._collapsed.tanks ? "›" : "▾"}</span>
@@ -554,6 +565,18 @@ class ChihirosPanel extends HTMLElement {
       const off = parseInt(this.shadowRoot.getElementById("co2-off").value, 10) || 0;
       this._setCo2(sw, on, off);
     };
+    const notifyApply = () => {
+      const svc = this.shadowRoot.getElementById("notify-service").value || null;
+      const after = parseInt(this.shadowRoot.getElementById("notify-after").value, 10) || 2;
+      const reconnect = this.shadowRoot.getElementById("notify-reconnect").checked;
+      this._setNotify(svc, after, reconnect);
+    };
+    ["notify-service", "notify-after", "notify-reconnect"].forEach((id) => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) el.addEventListener("change", notifyApply);
+    });
+    const notifyTest = this.shadowRoot.getElementById("notify-test");
+    if (notifyTest) notifyTest.addEventListener("click", () => this._testNotify());
     ["co2-switch", "co2-on", "co2-off"].forEach((id) => {
       const el = this.shadowRoot.getElementById(id);
       if (el) el.addEventListener("change", co2apply);
@@ -1111,6 +1134,10 @@ class ChihirosPanel extends HTMLElement {
     const cfg = this._moonlightConfig(dev);
     if (cfg.mode === "duration") return `${cfg.hours} h after lights-off`;
     if (cfg.mode === "time") return `Until ${minToTime(cfg.off_minute)}`;
+    if (cfg.mode === "until_switch") {
+      const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
+      return cfg.switch ? `Until ${s ? s.name : cfg.switch} turns on` : "Until a switch turns on (pick one)";
+    }
     if (cfg.mode === "switch") {
       const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
       const state = cfg.invert ? "off" : "on";
@@ -1141,6 +1168,7 @@ class ChihirosPanel extends HTMLElement {
             <option value="duration" ${cfg.mode === "duration" ? "selected" : ""}>After a set duration</option>
             <option value="time" ${cfg.mode === "time" ? "selected" : ""}>At a set time</option>
             <option value="switch" ${cfg.mode === "switch" ? "selected" : ""}>Based on a helper/switch</option>
+            <option value="until_switch" ${cfg.mode === "until_switch" ? "selected" : ""}>When a helper/switch turns on</option>
           </select></label>
         ${cfg.mode === "duration" ? `
           <label class="field"><span>Duration <b id="moon-hours-val">${cfg.hours.toFixed(1)} h</b></span>
@@ -1157,6 +1185,10 @@ class ChihirosPanel extends HTMLElement {
               <option value="off" ${cfg.invert ? "selected" : ""}>Off</option>
             </select></label>
           <p class="muted" style="font-size:12px;margin:6px 0 0">e.g. your <b>Night mode</b> boolean — moonlight glows only while it's in the chosen state (checked every ~30 s).</p>` : ""}
+        ${cfg.mode === "until_switch" ? `
+          <label class="field" style="min-width:100%"><span>Helper / switch</span>
+            <select id="moon-switch">${opts}</select></label>
+          <p class="muted" style="font-size:12px;margin:6px 0 0">Moonlight glows from lights-off until this helper turns <b>on</b> (e.g. your <b>Night mode</b>), then stays off until the next lights-on — even if the helper turns off again in the morning.</p>` : ""}
       ` : ""}`;
   }
 
@@ -1203,6 +1235,57 @@ class ChihirosPanel extends HTMLElement {
           <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡</button>
           <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
         </div>`).join("")}`;
+  }
+
+  _notifyValue(dev) {
+    const n = dev.notify || {};
+    if (!n.service) return "Home Assistant bell only — tap to add your phone";
+    const s = (this._notifyServices || []).find((x) => x.service === n.service);
+    return `${s ? s.name : n.service} · after ${n.after || 2} min offline`;
+  }
+
+  _notifyContent(dev) {
+    const n = dev.notify || { service: null, after: 2, reconnect: true };
+    const services = this._notifyServices || [];
+    const options = ['<option value="">— none (Home Assistant bell only) —</option>'].concat(
+      services.map((s) =>
+        `<option value="${esc(s.service)}" ${s.service === n.service ? "selected" : ""}>${esc(s.name)}</option>`)
+    ).join("");
+    const after = [2, 10, 30].map((m) =>
+      `<option value="${m}" ${m === (n.after || 2) ? "selected" : ""}>${m} minutes</option>`).join("");
+    return `
+      <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.5">Get a push message when the lamp can't be reached over Bluetooth.
+        The connection is also checked twice an hour, even when the light isn't changing.</p>
+      <label class="field" style="min-width:100%"><span>Send to</span>
+        <select id="notify-service">${options}</select></label>
+      ${services.length ? "" : `<p class="muted" style="font-size:12px;margin:6px 0 0">No notify services found — install the Home Assistant Companion app on your phone first.</p>`}
+      <div class="co2row">
+        <label class="field"><span>First message after</span>
+          <select id="notify-after" ${n.service ? "" : "disabled"}>${after}</select></label>
+      </div>
+      <label class="sunrow" style="margin-top:12px">
+        <input type="checkbox" id="notify-reconnect" ${n.reconnect !== false ? "checked" : ""} ${n.service ? "" : "disabled"}>
+        <span>Also tell me when it's back online</span>
+      </label>
+      ${n.service ? `<button class="btn small" id="notify-test" style="margin-top:12px">Send test message</button>` : ""}
+      <p class="muted" style="font-size:12px;margin:10px 0 0;line-height:1.5">Reminders follow at 10 and 30 minutes while it stays offline.
+        A notice in Home Assistant is always shown as well.</p>`;
+  }
+
+  async _setNotify(service, after, reconnect) {
+    this._lastInteraction = Date.now();
+    this._toast(service ? "Notifications on ✓" : "Push notifications off", "ok");
+    try {
+      await this._fanout((id) => ({ type: "chihiros_plus/set_notify", entry_id: id, service, after, reconnect }));
+    } catch (err) { this._toast("Could not save notification setting", "error"); }
+    await this._load();
+  }
+
+  async _testNotify() {
+    try {
+      const r = await this._ws({ type: "chihiros_plus/test_notify", entry_id: this._dev().entry_id });
+      this._toast(r.sent ? "Test message sent" : "Notify service not available", r.sent ? "ok" : "error");
+    } catch (err) { this._toast("Could not send test message", "error"); }
   }
 
   async _setCo2(sw, on, off) {

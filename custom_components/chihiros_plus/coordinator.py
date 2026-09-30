@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -36,6 +37,14 @@ from .mode_state import (
     persist_mode_options,
     restore_mode,
 )
+from .moonlight_gate import SWITCH_MODES, moonlight_gate
+from .notify_policy import (
+    normalize_after,
+    push_due,
+    reconnected_message,
+    split_service,
+    unreachable_message,
+)
 from .protocol import RGBW
 from .transport import Transport
 from .watchdog import ConnectionState, Watchdog, WatchdogConfig
@@ -43,6 +52,12 @@ from .watchdog import ConnectionState, Watchdog, WatchdogConfig
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=30)
+# An unchanged, confirmed output is deduped (no BLE traffic), so a lamp that
+# silently drops off the link — or power-cycles and forgets its output — would
+# go unnoticed. Twice an hour the current output is re-sent regardless: that
+# both detects a lost link (and starts the unreachable notifications) and
+# re-asserts the desired light, e.g. moonlight after a lamp reset.
+HEALTH_CHECK_INTERVAL = timedelta(minutes=30)
 
 # Default aquarium photoperiod when following the sun and the user hasn't set a
 # day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
@@ -109,12 +124,17 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._moonlight: bool = bool(entry.options.get("moonlight", False))
         # How moonlight ends: "all_night" (until next lights-on), "duration"
         # (moonlight_hours after lights-off), "time" (a clock end time) or
-        # "switch" (only while a chosen entity is on/off). Persisted in options.
+        # "switch" (only while a chosen entity is on/off) or "until_switch"
+        # (until a chosen entity turns on, then off for the rest of the night).
+        # Persisted in options.
         self._moonlight_mode: str = entry.options.get("moonlight_mode", "all_night")
         self._moonlight_hours: float = float(entry.options.get("moonlight_hours", 3))
         self._moonlight_off_minute: int = int(entry.options.get("moonlight_off_minute", 1380))
         self._moonlight_switch: str | None = entry.options.get("moonlight_switch")
         self._moonlight_invert: bool = bool(entry.options.get("moonlight_invert", False))
+        # "until_switch": the helper already turned on this night. Persisted so
+        # a restart before the next lights-on doesn't bring moonlight back.
+        self._moonlight_latched: bool = bool(entry.options.get("moonlight_latched", False))
         self._program: ProgramParameters = NATURAL_DAY
         self._rebuild_engine()
         self._previous_program_key: str | None = None
@@ -122,6 +142,14 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._manual = RGBW(0, 0, 0, 0)
         self._revert_cancel = None
         self._apply_task = None
+        self._last_health_check: float | None = None   # monotonic seconds
+        self._unreachable_notified = False
+        # Optional push notification (Setup -> Notifications): a notify service
+        # such as the user's phone, and after how many minutes to push first.
+        self._notify_service: str | None = entry.options.get("notify_service")
+        self._notify_after: int = normalize_after(entry.options.get("notify_after"))
+        self._notify_reconnect: bool = bool(entry.options.get("notify_reconnect", True))
+        self._pushed = False   # a push went out for the current outage
         self._identifying = False       # true while blinking for identify
         self._maintenance = False
         self._pending: tuple[Phase, RGBW] = (Phase.NIGHT, RGBW(0, 0, 0, 0))
@@ -316,7 +344,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         """Configure Moonlight-at-night: on/off, how it ends (all night / a set
         duration / a clock time / a switch), and the switch state that gates it."""
         self._moonlight = bool(enabled)
-        if mode in ("all_night", "duration", "time", "switch"):
+        if mode in ("all_night", "duration", "time", *SWITCH_MODES):
             self._moonlight_mode = mode
         if hours is not None:
             self._moonlight_hours = max(0.5, min(12, float(hours)))
@@ -510,18 +538,27 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _desired_state(self) -> tuple[Phase, RGBW]:
         if self._mode == MODE_PROGRAM:
             state: LightState = self._engine.get_state(dt_util.now())
-            # Switch-gated moonlight: only glow while the chosen entity is in
-            # the chosen state (on, or off when inverted).
+            # Helper-gated moonlight ("switch" / "until_switch").
             if (
                 self._moonlight
-                and self._moonlight_mode == "switch"
+                and self._moonlight_mode in SWITCH_MODES
                 and self._moonlight_switch
-                and state.phase == Phase.MOONLIGHT
             ):
                 st = self.hass.states.get(self._moonlight_switch)
-                is_on = st is not None and st.state == "on"
-                active = (not is_on) if self._moonlight_invert else is_on
-                if not active:
+                glow, latched = moonlight_gate(
+                    self._moonlight_mode,
+                    in_moonlight=state.phase == Phase.MOONLIGHT,
+                    helper_on=st is not None and st.state == "on",
+                    invert=self._moonlight_invert,
+                    latched=self._moonlight_latched,
+                )
+                if latched != self._moonlight_latched:
+                    self._moonlight_latched = latched
+                    self.hass.config_entries.async_update_entry(
+                        self.entry,
+                        options={**self.entry.options, "moonlight_latched": latched},
+                    )
+                if not glow:
                     return Phase.NIGHT, RGBW(0, 0, 0, 0)
             return state.phase, state.rgbw
         # manual / off: hold the user's colour, no phase from the engine
@@ -555,8 +592,15 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _run_apply(self) -> None:
         phase, desired = self._pending
+        now = time.monotonic()
+        health_check = (
+            self._last_health_check is None
+            or now - self._last_health_check >= HEALTH_CHECK_INTERVAL.total_seconds()
+        )
+        if health_check:
+            self._last_health_check = now
         try:
-            await self.controller.apply_rgbw(desired)
+            await self.controller.apply_rgbw(desired, force=health_check)
         except Exception:  # pragma: no cover - watchdog already handles retries
             _LOGGER.debug("%s: apply failed", self.name, exc_info=True)
         try:
@@ -565,7 +609,14 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             _LOGGER.debug("%s: CO2 apply failed", self.name, exc_info=True)
         event = self.watchdog.poll_notification()
         if event is not None:
-            self._notify_unreachable(event.level, event.elapsed_seconds)
+            self._notify_unreachable(
+                event.level, event.elapsed_seconds, event.threshold_seconds
+            )
+        elif (
+            self._unreachable_notified
+            and self.watchdog.status.state is ConnectionState.CONNECTED
+        ):
+            self._notify_reconnected()
         # Push the post-apply state (now with confirmation) to entities without
         # re-entering the update loop.
         self.async_set_updated_data(self._build_snapshot(phase, desired))
@@ -623,6 +674,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
             "co2": self._co2_snapshot(),
+            "notify": self._notify_snapshot(),
             "desired": list(d.desired.as_tuple()),
             "confirmed": list(d.confirmed.as_tuple()) if d.confirmed else None,
             "is_confirmed": d.is_confirmed,
@@ -748,7 +800,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
 
     @callback
-    def _notify_unreachable(self, level: str, elapsed: float) -> None:
+    def _notify_unreachable(
+        self, level: str, elapsed: float, threshold: float = 0.0
+    ) -> None:
         minutes = int(elapsed // 60)
         prefix = "CRITICAL: " if level == "critical" else ""
         persistent_notification.async_create(
@@ -757,3 +811,83 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             title="Chihiros aquarium light",
             notification_id=f"{DOMAIN}_{self.entry.entry_id}_unreachable",
         )
+        self._unreachable_notified = True
+        if push_due(threshold, self._notify_after):
+            self._push(unreachable_message(self.entry.title, minutes, level))
+        # Also fire an event so users can route it anywhere (e.g. a phone push
+        # via an automation on `chihiros_plus_unreachable`).
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_unreachable",
+            {
+                "entry_id": self.entry.entry_id,
+                "name": self.entry.title,
+                "level": level,
+                "minutes": minutes,
+            },
+        )
+
+    @callback
+    def _notify_reconnected(self) -> None:
+        self._unreachable_notified = False
+        if self._pushed and self._notify_reconnect:
+            self._push(reconnected_message(self.entry.title))
+        self._pushed = False
+        persistent_notification.async_dismiss(
+            self.hass, f"{DOMAIN}_{self.entry.entry_id}_unreachable"
+        )
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_reconnected",
+            {"entry_id": self.entry.entry_id, "name": self.entry.title},
+        )
+
+    @callback
+    def _push(self, message: str, *, test: bool = False) -> bool:
+        """Send a push via the chosen notify service. Returns False if unset."""
+        target = split_service(self._notify_service)
+        if target is None or not self.hass.services.has_service(*target):
+            return False
+        if not test:
+            self._pushed = True
+        self.hass.async_create_background_task(
+            self.hass.services.async_call(
+                *target,
+                {"title": "Chihiros aquarium light", "message": message},
+                blocking=False,
+            ),
+            name=f"{self.name}_notify",
+        )
+        return True
+
+    async def async_set_notify(
+        self, service: str | None, after: int | None, reconnect: bool | None
+    ) -> None:
+        """Choose where (and after how long) unreachable pushes go."""
+        self._notify_service = service if split_service(service) else None
+        if after is not None:
+            self._notify_after = normalize_after(after)
+        if reconnect is not None:
+            self._notify_reconnect = bool(reconnect)
+        opts = {
+            **self.entry.options,
+            "notify_after": self._notify_after,
+            "notify_reconnect": self._notify_reconnect,
+        }
+        if self._notify_service:
+            opts["notify_service"] = self._notify_service
+        else:
+            opts.pop("notify_service", None)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+
+    @callback
+    def async_test_notify(self) -> bool:
+        return self._push(
+            f"Test from {self.entry.title}: notifications work.", test=True
+        )
+
+    @callback
+    def _notify_snapshot(self) -> dict:
+        return {
+            "service": self._notify_service,
+            "after": self._notify_after,
+            "reconnect": self._notify_reconnect,
+        }

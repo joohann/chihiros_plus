@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.8.5 — Notice a lost lamp, and keep Moonlight on
+
+### Summary
+
+If the lamp dropped off Bluetooth while its output wasn't changing (for
+example all night on Moonlight), the integration never noticed: no
+notification, the connection still showed "connected", and a lamp that had
+power-cycled stayed dark even though Moonlight was enabled.
+
+### The problem
+
+To avoid needless Bluetooth traffic, an unchanged output that the lamp had
+already confirmed is not sent again. During a long steady phase nothing was
+written at all, so a lost link was only discovered at the next colour change,
+and the lamp was never told again what it should be showing.
+
+Separately, the "unreachable" notifications were timed from the last
+successful write. After a long quiet period that could jump straight to
+"critical" with a misleading duration, and a lamp that was never reached since
+Home Assistant started produced no notification at all.
+
+### The fix
+
+- **Health check twice an hour:** every 30 minutes the current output is sent
+  again, even if it hasn't changed. This detects a lost link and re-applies the
+  desired light (e.g. Moonlight after the lamp reset).
+- **Notifications timed from the start of the outage:** the 2 / 10 / 30 minute
+  warnings now count from the first failed attempt, and also fire when the lamp
+  was never reached since startup.
+- **Events for automations:** `chihiros_plus_unreachable` (with `name`,
+  `level`, `minutes`) and `chihiros_plus_reconnected` are fired, so you can send
+  a phone notification from an automation. The persistent notification is
+  dismissed automatically once the lamp is reachable again.
+- **Push notifications, set up in the panel:** *Setup → Notifications* lets
+  you pick where to send a push (e.g. your phone via the Companion app), after
+  how many minutes offline the first message goes out (2 / 10 / 30; later
+  thresholds remind you again) and whether to also get a "back online"
+  message. A **Send test message** button checks it works. No automation
+  needed; the Home Assistant notice is always shown as well.
+- **New Moonlight option "When a helper/switch turns on":** Moonlight glows
+  from lights-off until the chosen helper (e.g. a *Night mode* that turns the
+  whole house off) turns on, then stays off for the rest of the night — also
+  when the helper turns off again in the morning before the next lights-on.
+  This survives a Home Assistant restart. The existing "Based on a
+  helper/switch" option still follows the helper live.
+
 ## v0.8.4 — Moonlight no longer stays on all night after a reboot
 
 ### Summary

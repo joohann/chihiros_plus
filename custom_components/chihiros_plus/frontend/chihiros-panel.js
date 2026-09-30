@@ -1111,6 +1111,10 @@ class ChihirosPanel extends HTMLElement {
     const cfg = this._moonlightConfig(dev);
     if (cfg.mode === "duration") return `${cfg.hours} h after lights-off`;
     if (cfg.mode === "time") return `Until ${minToTime(cfg.off_minute)}`;
+    if (cfg.mode === "until_switch") {
+      const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
+      return cfg.switch ? `Until ${s ? s.name : cfg.switch} turns on` : "Until a switch turns on (pick one)";
+    }
     if (cfg.mode === "switch") {
       const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
       const state = cfg.invert ? "off" : "on";
@@ -1141,6 +1145,7 @@ class ChihirosPanel extends HTMLElement {
             <option value="duration" ${cfg.mode === "duration" ? "selected" : ""}>After a set duration</option>
             <option value="time" ${cfg.mode === "time" ? "selected" : ""}>At a set time</option>
             <option value="switch" ${cfg.mode === "switch" ? "selected" : ""}>Based on a helper/switch</option>
+            <option value="until_switch" ${cfg.mode === "until_switch" ? "selected" : ""}>When a helper/switch turns on</option>
           </select></label>
         ${cfg.mode === "duration" ? `
           <label class="field"><span>Duration <b id="moon-hours-val">${cfg.hours.toFixed(1)} h</b></span>
@@ -1157,6 +1162,10 @@ class ChihirosPanel extends HTMLElement {
               <option value="off" ${cfg.invert ? "selected" : ""}>Off</option>
             </select></label>
           <p class="muted" style="font-size:12px;margin:6px 0 0">e.g. your <b>Night mode</b> boolean — moonlight glows only while it's in the chosen state (checked every ~30 s).</p>` : ""}
+        ${cfg.mode === "until_switch" ? `
+          <label class="field" style="min-width:100%"><span>Helper / switch</span>
+            <select id="moon-switch">${opts}</select></label>
+          <p class="muted" style="font-size:12px;margin:6px 0 0">Moonlight glows from lights-off until this helper turns <b>on</b> (e.g. your <b>Night mode</b>), then stays off until the next lights-on — even if the helper turns off again in the morning.</p>` : ""}
       ` : ""}`;
   }
 

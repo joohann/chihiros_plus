@@ -166,7 +166,7 @@ async def ws_set_sidebar(hass, connection, msg: dict[str, Any]) -> None:
         vol.Required("type"): "chihiros_plus/set_moonlight",
         vol.Required("entry_id"): str,
         vol.Required("enabled"): bool,
-        vol.Optional("mode"): vol.In(["all_night", "duration", "time", "switch"]),
+        vol.Optional("mode"): vol.In(["all_night", "duration", "time", "switch", "until_switch"]),
         vol.Optional("hours"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=12)),
         vol.Optional("off_minute"): vol.All(int, vol.Range(min=0, max=1439)),
         vol.Optional("switch"): vol.Any(None, str),

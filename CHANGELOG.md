@@ -33,6 +33,12 @@ Home Assistant started produced no notification at all.
   `level`, `minutes`) and `chihiros_plus_reconnected` are fired, so you can send
   a phone notification from an automation. The persistent notification is
   dismissed automatically once the lamp is reachable again.
+- **New Moonlight option "When a helper/switch turns on":** Moonlight glows
+  from lights-off until the chosen helper (e.g. a *Night mode* that turns the
+  whole house off) turns on, then stays off for the rest of the night — also
+  when the helper turns off again in the morning before the next lights-on.
+  This survives a Home Assistant restart. The existing "Based on a
+  helper/switch" option still follows the helper live.
 
 ## v0.8.4 — Moonlight no longer stays on all night after a reboot
 

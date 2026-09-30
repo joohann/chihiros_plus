@@ -30,6 +30,7 @@ from .controller import Calibration, LightController
 from .devices import ChihirosModel
 from .engine import PRESETS, LightEngine, LightState, Phase, ProgramParameters
 from .engine.programs import MOONLIGHT, NATURAL_DAY
+from .moonlight_gate import SWITCH_MODES, moonlight_gate
 from .mode_state import (
     MODE_MANUAL,
     MODE_OFF,
@@ -116,12 +117,17 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._moonlight: bool = bool(entry.options.get("moonlight", False))
         # How moonlight ends: "all_night" (until next lights-on), "duration"
         # (moonlight_hours after lights-off), "time" (a clock end time) or
-        # "switch" (only while a chosen entity is on/off). Persisted in options.
+        # "switch" (only while a chosen entity is on/off) or "until_switch"
+        # (until a chosen entity turns on, then off for the rest of the night).
+        # Persisted in options.
         self._moonlight_mode: str = entry.options.get("moonlight_mode", "all_night")
         self._moonlight_hours: float = float(entry.options.get("moonlight_hours", 3))
         self._moonlight_off_minute: int = int(entry.options.get("moonlight_off_minute", 1380))
         self._moonlight_switch: str | None = entry.options.get("moonlight_switch")
         self._moonlight_invert: bool = bool(entry.options.get("moonlight_invert", False))
+        # "until_switch": the helper already turned on this night. Persisted so
+        # a restart before the next lights-on doesn't bring moonlight back.
+        self._moonlight_latched: bool = bool(entry.options.get("moonlight_latched", False))
         self._program: ProgramParameters = NATURAL_DAY
         self._rebuild_engine()
         self._previous_program_key: str | None = None
@@ -325,7 +331,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         """Configure Moonlight-at-night: on/off, how it ends (all night / a set
         duration / a clock time / a switch), and the switch state that gates it."""
         self._moonlight = bool(enabled)
-        if mode in ("all_night", "duration", "time", "switch"):
+        if mode in ("all_night", "duration", "time", *SWITCH_MODES):
             self._moonlight_mode = mode
         if hours is not None:
             self._moonlight_hours = max(0.5, min(12, float(hours)))
@@ -519,18 +525,27 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _desired_state(self) -> tuple[Phase, RGBW]:
         if self._mode == MODE_PROGRAM:
             state: LightState = self._engine.get_state(dt_util.now())
-            # Switch-gated moonlight: only glow while the chosen entity is in
-            # the chosen state (on, or off when inverted).
+            # Helper-gated moonlight ("switch" / "until_switch").
             if (
                 self._moonlight
-                and self._moonlight_mode == "switch"
+                and self._moonlight_mode in SWITCH_MODES
                 and self._moonlight_switch
-                and state.phase == Phase.MOONLIGHT
             ):
                 st = self.hass.states.get(self._moonlight_switch)
-                is_on = st is not None and st.state == "on"
-                active = (not is_on) if self._moonlight_invert else is_on
-                if not active:
+                glow, latched = moonlight_gate(
+                    self._moonlight_mode,
+                    in_moonlight=state.phase == Phase.MOONLIGHT,
+                    helper_on=st is not None and st.state == "on",
+                    invert=self._moonlight_invert,
+                    latched=self._moonlight_latched,
+                )
+                if latched != self._moonlight_latched:
+                    self._moonlight_latched = latched
+                    self.hass.config_entries.async_update_entry(
+                        self.entry,
+                        options={**self.entry.options, "moonlight_latched": latched},
+                    )
+                if not glow:
                     return Phase.NIGHT, RGBW(0, 0, 0, 0)
             return state.phase, state.rgbw
         # manual / off: hold the user's colour, no phase from the engine

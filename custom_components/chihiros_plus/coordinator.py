@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -43,6 +44,12 @@ from .watchdog import ConnectionState, Watchdog, WatchdogConfig
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=30)
+# An unchanged, confirmed output is deduped (no BLE traffic), so a lamp that
+# silently drops off the link — or power-cycles and forgets its output — would
+# go unnoticed. Twice an hour the current output is re-sent regardless: that
+# both detects a lost link (and starts the unreachable notifications) and
+# re-asserts the desired light, e.g. moonlight after a lamp reset.
+HEALTH_CHECK_INTERVAL = timedelta(minutes=30)
 
 # Default aquarium photoperiod when following the sun and the user hasn't set a
 # day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
@@ -122,6 +129,8 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._manual = RGBW(0, 0, 0, 0)
         self._revert_cancel = None
         self._apply_task = None
+        self._last_health_check: float | None = None   # monotonic seconds
+        self._unreachable_notified = False
         self._identifying = False       # true while blinking for identify
         self._maintenance = False
         self._pending: tuple[Phase, RGBW] = (Phase.NIGHT, RGBW(0, 0, 0, 0))
@@ -555,8 +564,15 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _run_apply(self) -> None:
         phase, desired = self._pending
+        now = time.monotonic()
+        health_check = (
+            self._last_health_check is None
+            or now - self._last_health_check >= HEALTH_CHECK_INTERVAL.total_seconds()
+        )
+        if health_check:
+            self._last_health_check = now
         try:
-            await self.controller.apply_rgbw(desired)
+            await self.controller.apply_rgbw(desired, force=health_check)
         except Exception:  # pragma: no cover - watchdog already handles retries
             _LOGGER.debug("%s: apply failed", self.name, exc_info=True)
         try:
@@ -566,6 +582,11 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         event = self.watchdog.poll_notification()
         if event is not None:
             self._notify_unreachable(event.level, event.elapsed_seconds)
+        elif (
+            self._unreachable_notified
+            and self.watchdog.status.state is ConnectionState.CONNECTED
+        ):
+            self._notify_reconnected()
         # Push the post-apply state (now with confirmation) to entities without
         # re-entering the update loop.
         self.async_set_updated_data(self._build_snapshot(phase, desired))
@@ -756,4 +777,27 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             f"{prefix}{self.entry.title} Bluetooth unreachable for {minutes} min.",
             title="Chihiros aquarium light",
             notification_id=f"{DOMAIN}_{self.entry.entry_id}_unreachable",
+        )
+        self._unreachable_notified = True
+        # Also fire an event so users can route it anywhere (e.g. a phone push
+        # via an automation on `chihiros_plus_unreachable`).
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_unreachable",
+            {
+                "entry_id": self.entry.entry_id,
+                "name": self.entry.title,
+                "level": level,
+                "minutes": minutes,
+            },
+        )
+
+    @callback
+    def _notify_reconnected(self) -> None:
+        self._unreachable_notified = False
+        persistent_notification.async_dismiss(
+            self.hass, f"{DOMAIN}_{self.entry.entry_id}_unreachable"
+        )
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_reconnected",
+            {"entry_id": self.entry.entry_id, "name": self.entry.title},
         )

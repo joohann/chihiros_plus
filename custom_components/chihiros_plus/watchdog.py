@@ -66,6 +66,7 @@ class WatchdogStatus:
     retry_count: int = 0            # retries used on the last operation
     consecutive_failures: int = 0
     last_success: float | None = None
+    outage_since: float | None = None   # first failure of the current outage
     last_error: str | None = None
     rssi: int | None = None
     highest_notification_sent: float = field(default=0.0)  # threshold already fired
@@ -135,12 +136,15 @@ class Watchdog:
         self.status.state = ConnectionState.CONNECTED
         self.status.consecutive_failures = 0
         self.status.last_success = self._clock()
+        self.status.outage_since = None
         self.status.last_error = None
         self.status.rssi = self.transport.rssi
         self.status.highest_notification_sent = 0.0
 
     def _on_failure(self, err: Exception) -> None:
         self.status.consecutive_failures += 1
+        if self.status.outage_since is None:
+            self.status.outage_since = self._clock()
         self.status.last_error = str(err)
         # A single failure with retries left is "degraded", not offline yet.
         if self.status.state is not ConnectionState.RECONNECTING:
@@ -165,12 +169,19 @@ class Watchdog:
 
         Escalating thresholds (2/10/30 min) fire at most once each per outage,
         preventing notification spam. Reset happens on the next success.
+
+        The outage is timed from its first failed attempt, not from the last
+        success: with an idle (deduped) link the last success can be long ago,
+        and a lamp that was never reached since startup has no success at all.
         """
         if self.status.state is ConnectionState.CONNECTED:
             return None
-        elapsed = self.seconds_since_success(now)
-        if elapsed is None:
+        start = self.status.outage_since
+        if start is None:
+            start = self.status.last_success
+        if start is None:
             return None
+        elapsed = (now if now is not None else self._clock()) - start
         c = self.config
         for level, threshold in (
             ("critical", c.critical_after),

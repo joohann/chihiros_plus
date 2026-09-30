@@ -30,13 +30,20 @@ from .controller import Calibration, LightController
 from .devices import ChihirosModel
 from .engine import PRESETS, LightEngine, LightState, Phase, ProgramParameters
 from .engine.programs import MOONLIGHT, NATURAL_DAY
-from .moonlight_gate import SWITCH_MODES, moonlight_gate
 from .mode_state import (
     MODE_MANUAL,
     MODE_OFF,
     MODE_PROGRAM,
     persist_mode_options,
     restore_mode,
+)
+from .moonlight_gate import SWITCH_MODES, moonlight_gate
+from .notify_policy import (
+    normalize_after,
+    push_due,
+    reconnected_message,
+    split_service,
+    unreachable_message,
 )
 from .protocol import RGBW
 from .transport import Transport
@@ -137,6 +144,12 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._apply_task = None
         self._last_health_check: float | None = None   # monotonic seconds
         self._unreachable_notified = False
+        # Optional push notification (Setup -> Notifications): a notify service
+        # such as the user's phone, and after how many minutes to push first.
+        self._notify_service: str | None = entry.options.get("notify_service")
+        self._notify_after: int = normalize_after(entry.options.get("notify_after"))
+        self._notify_reconnect: bool = bool(entry.options.get("notify_reconnect", True))
+        self._pushed = False   # a push went out for the current outage
         self._identifying = False       # true while blinking for identify
         self._maintenance = False
         self._pending: tuple[Phase, RGBW] = (Phase.NIGHT, RGBW(0, 0, 0, 0))
@@ -596,7 +609,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             _LOGGER.debug("%s: CO2 apply failed", self.name, exc_info=True)
         event = self.watchdog.poll_notification()
         if event is not None:
-            self._notify_unreachable(event.level, event.elapsed_seconds)
+            self._notify_unreachable(
+                event.level, event.elapsed_seconds, event.threshold_seconds
+            )
         elif (
             self._unreachable_notified
             and self.watchdog.status.state is ConnectionState.CONNECTED
@@ -659,6 +674,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
             "co2": self._co2_snapshot(),
+            "notify": self._notify_snapshot(),
             "desired": list(d.desired.as_tuple()),
             "confirmed": list(d.confirmed.as_tuple()) if d.confirmed else None,
             "is_confirmed": d.is_confirmed,
@@ -784,7 +800,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
 
     @callback
-    def _notify_unreachable(self, level: str, elapsed: float) -> None:
+    def _notify_unreachable(
+        self, level: str, elapsed: float, threshold: float = 0.0
+    ) -> None:
         minutes = int(elapsed // 60)
         prefix = "CRITICAL: " if level == "critical" else ""
         persistent_notification.async_create(
@@ -794,6 +812,8 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             notification_id=f"{DOMAIN}_{self.entry.entry_id}_unreachable",
         )
         self._unreachable_notified = True
+        if push_due(threshold, self._notify_after):
+            self._push(unreachable_message(self.entry.title, minutes, level))
         # Also fire an event so users can route it anywhere (e.g. a phone push
         # via an automation on `chihiros_plus_unreachable`).
         self.hass.bus.async_fire(
@@ -809,6 +829,9 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
     @callback
     def _notify_reconnected(self) -> None:
         self._unreachable_notified = False
+        if self._pushed and self._notify_reconnect:
+            self._push(reconnected_message(self.entry.title))
+        self._pushed = False
         persistent_notification.async_dismiss(
             self.hass, f"{DOMAIN}_{self.entry.entry_id}_unreachable"
         )
@@ -816,3 +839,55 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             f"{DOMAIN}_reconnected",
             {"entry_id": self.entry.entry_id, "name": self.entry.title},
         )
+
+    @callback
+    def _push(self, message: str, *, test: bool = False) -> bool:
+        """Send a push via the chosen notify service. Returns False if unset."""
+        target = split_service(self._notify_service)
+        if target is None or not self.hass.services.has_service(*target):
+            return False
+        if not test:
+            self._pushed = True
+        self.hass.async_create_background_task(
+            self.hass.services.async_call(
+                *target,
+                {"title": "Chihiros aquarium light", "message": message},
+                blocking=False,
+            ),
+            name=f"{self.name}_notify",
+        )
+        return True
+
+    async def async_set_notify(
+        self, service: str | None, after: int | None, reconnect: bool | None
+    ) -> None:
+        """Choose where (and after how long) unreachable pushes go."""
+        self._notify_service = service if split_service(service) else None
+        if after is not None:
+            self._notify_after = normalize_after(after)
+        if reconnect is not None:
+            self._notify_reconnect = bool(reconnect)
+        opts = {
+            **self.entry.options,
+            "notify_after": self._notify_after,
+            "notify_reconnect": self._notify_reconnect,
+        }
+        if self._notify_service:
+            opts["notify_service"] = self._notify_service
+        else:
+            opts.pop("notify_service", None)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+
+    @callback
+    def async_test_notify(self) -> bool:
+        return self._push(
+            f"Test from {self.entry.title}: notifications work.", test=True
+        )
+
+    @callback
+    def _notify_snapshot(self) -> dict:
+        return {
+            "service": self._notify_service,
+            "after": self._notify_after,
+            "reconnect": self._notify_reconnect,
+        }

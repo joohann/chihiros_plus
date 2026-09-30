@@ -37,6 +37,9 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_stop_treatment)
     websocket_api.async_register_command(hass, ws_list_switches)
     websocket_api.async_register_command(hass, ws_set_co2)
+    websocket_api.async_register_command(hass, ws_list_notify_services)
+    websocket_api.async_register_command(hass, ws_set_notify)
+    websocket_api.async_register_command(hass, ws_test_notify)
     websocket_api.async_register_command(hass, ws_set_rgbw)
     websocket_api.async_register_command(hass, ws_emergency_off)
     websocket_api.async_register_command(hass, ws_reconnect)
@@ -356,3 +359,49 @@ async def ws_reconnect(hass, connection, msg: dict[str, Any]) -> None:
         return
     ok = await coordinator.async_reconnect()
     connection.send_result(msg["id"], {"reconnected": ok, **coordinator.snapshot()})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "chihiros_plus/list_notify_services"})
+@callback
+def ws_list_notify_services(hass, connection, msg: dict[str, Any]) -> None:
+    """Notify services the user can pick for unreachable pushes (e.g. phones)."""
+    names = sorted(hass.services.async_services().get("notify", {}))
+    items = [
+        {"service": f"notify.{n}", "name": n.replace("mobile_app_", "📱 ").replace("_", " ")}
+        for n in names
+        if n not in ("persistent_notification", "send_message")
+    ]
+    connection.send_result(msg["id"], {"services": items})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chihiros_plus/set_notify",
+        vol.Required("entry_id"): str,
+        vol.Required("service"): vol.Any(None, str),
+        vol.Optional("after"): vol.In([2, 10, 30]),
+        vol.Optional("reconnect"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_set_notify(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    await coordinator.async_set_notify(
+        msg["service"], msg.get("after"), msg.get("reconnect")
+    )
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "chihiros_plus/test_notify", vol.Required("entry_id"): str}
+)
+@callback
+def ws_test_notify(hass, connection, msg: dict[str, Any]) -> None:
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    connection.send_result(msg["id"], {"sent": coordinator.async_test_notify()})

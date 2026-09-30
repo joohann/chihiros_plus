@@ -33,6 +33,12 @@ Home Assistant started produced no notification at all.
   `level`, `minutes`) and `chihiros_plus_reconnected` are fired, so you can send
   a phone notification from an automation. The persistent notification is
   dismissed automatically once the lamp is reachable again.
+- **Push notifications, set up in the panel:** *Setup → Notifications* lets
+  you pick where to send a push (e.g. your phone via the Companion app), after
+  how many minutes offline the first message goes out (2 / 10 / 30; later
+  thresholds remind you again) and whether to also get a "back online"
+  message. A **Send test message** button checks it works. No automation
+  needed; the Home Assistant notice is always shown as well.
 - **New Moonlight option "When a helper/switch turns on":** Moonlight glows
   from lights-off until the chosen helper (e.g. a *Night mode* that turns the
   whole house off) turns on, then stays off for the rest of the night — also

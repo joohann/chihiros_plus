@@ -58,6 +58,10 @@ UPDATE_INTERVAL = timedelta(seconds=30)
 # both detects a lost link (and starts the unreachable notifications) and
 # re-asserts the desired light, e.g. moonlight after a lamp reset.
 HEALTH_CHECK_INTERVAL = timedelta(minutes=30)
+# Safety net: an apply still running after this long is considered stuck and
+# is cancelled, so the next tick can start a fresh one. (Every BLE call is
+# already bounded by the watchdog's op_timeout; this guards everything else.)
+APPLY_STALE_AFTER = timedelta(minutes=10)
 
 # Default aquarium photoperiod when following the sun and the user hasn't set a
 # day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
@@ -142,6 +146,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._manual = RGBW(0, 0, 0, 0)
         self._revert_cancel = None
         self._apply_task = None
+        self._apply_started: float = 0.0   # monotonic seconds
         self._last_health_check: float | None = None   # monotonic seconds
         self._unreachable_notified = False
         # Optional push notification (Setup -> Notifications): a notify service
@@ -579,13 +584,24 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         phase, desired = self._desired_state()
         self._pending = (phase, desired)
         self._schedule_apply()
+        # Also check every tick, not only after an apply finishes, so an
+        # outage is reported even while a (slow) apply is still in flight.
+        self._check_notifications()
         return self._build_snapshot(phase, desired)
 
     def _schedule_apply(self) -> None:
         if self._identifying:
             return  # don't fight the identify blink; it restores state when done
         if self._apply_task is not None and not self._apply_task.done():
-            return  # one apply in flight; it will pick up the latest _pending
+            running = time.monotonic() - self._apply_started
+            if running < APPLY_STALE_AFTER.total_seconds():
+                return  # one apply in flight; it will pick up the latest _pending
+            _LOGGER.warning(
+                "%s: apply stuck for %d s, cancelling and retrying",
+                self.name, running,
+            )
+            self._apply_task.cancel()
+        self._apply_started = time.monotonic()
         self._apply_task = self.hass.async_create_background_task(
             self._run_apply(), name=f"{self.name}_apply"
         )
@@ -607,6 +623,13 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             await self._apply_co2()
         except Exception:  # pragma: no cover - never let CO₂ break the update
             _LOGGER.debug("%s: CO2 apply failed", self.name, exc_info=True)
+        self._check_notifications()
+        # Push the post-apply state (now with confirmation) to entities without
+        # re-entering the update loop.
+        self.async_set_updated_data(self._build_snapshot(phase, desired))
+
+    @callback
+    def _check_notifications(self) -> None:
         event = self.watchdog.poll_notification()
         if event is not None:
             self._notify_unreachable(
@@ -617,9 +640,6 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             and self.watchdog.status.state is ConnectionState.CONNECTED
         ):
             self._notify_reconnected()
-        # Push the post-apply state (now with confirmation) to entities without
-        # re-entering the update loop.
-        self.async_set_updated_data(self._build_snapshot(phase, desired))
 
     def _build_snapshot(self, phase: Phase, desired: RGBW) -> CoordinatorData:
         st = self.watchdog.status

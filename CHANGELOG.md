@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.8.6 — No more silent stalls when Bluetooth hangs
+
+### Summary
+
+The lamp could stop responding for hours **without any notification**: no
+light changes, no Moonlight, no "unreachable" message, even with push
+notifications set up.
+
+### The problem
+
+None of the Bluetooth calls (connect, write, disconnect) had a time limit.
+When a call **hung** instead of failing (a lamp or Bluetooth proxy that stops
+answering without reporting a disconnect), the background task that drives the
+lamp never finished. Because only one such task runs at a time, every later
+update was skipped. The unreachable check only ran after that task finished,
+so no notification was ever sent either. Only a restart of Home Assistant got
+things moving again.
+
+### The fix
+
+- **Every Bluetooth call is time-limited** (30 s). A hang now counts as a
+  failed attempt: the normal retry/reconnect ladder runs, and the 2 / 10 / 30
+  minute unreachable notifications (and your phone push) fire as intended.
+- **A stuck update is cancelled after 10 minutes** and a fresh one starts, as
+  a safety net for anything else that might hang.
+- **The unreachable check runs every 30 seconds**, independently of whether
+  an update is still in progress.
+
 ## v0.8.5 — Notice a lost lamp, and keep Moonlight on
 
 ### Summary

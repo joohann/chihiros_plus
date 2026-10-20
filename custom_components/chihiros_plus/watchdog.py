@@ -51,6 +51,10 @@ class WatchdogConfig:
     warning_after: float = 120.0       # 2 min  -> warning notification
     warning2_after: float = 600.0      # 10 min -> escalated warning
     critical_after: float = 1800.0     # 30 min -> critical notification
+    # Upper bound for a single connect / write / disconnect. A BLE call that
+    # hangs (instead of failing) would otherwise stall the lamp forever: no
+    # retries, no further writes and no unreachable notifications.
+    op_timeout: float = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,9 +109,9 @@ class Watchdog:
             try:
                 if not self.transport.is_connected:
                     self._set_state(ConnectionState.RECONNECTING)
-                    await self.transport.connect()
+                    await self._bounded(self.transport.connect(), "connect")
                 for frame in frames:
-                    await self.transport.send(frame)
+                    await self._bounded(self.transport.send(frame), "write")
                 self._on_success()
                 return True
             except (TransportError, FrameError) as err:
@@ -118,7 +122,7 @@ class Watchdog:
                 # Later attempts: drop the link so the next iteration reconnects.
                 self._set_state(ConnectionState.RECONNECTING)
                 try:
-                    await self.transport.disconnect()
+                    await self._bounded(self.transport.disconnect(), "disconnect")
                 except Exception:  # pragma: no cover - best effort
                     pass
                 # First retry is immediate; subsequent ones wait.
@@ -126,6 +130,15 @@ class Watchdog:
                     await self._sleep(self.config.retry_interval)
         self._finalize_failure(last_err)
         return False
+
+    async def _bounded(self, awaitable: Awaitable[None], what: str) -> None:
+        """Await one transport call, turning a hang into a TransportError."""
+        try:
+            await asyncio.wait_for(awaitable, self.config.op_timeout)
+        except TimeoutError as err:
+            raise TransportError(
+                f"{what} timed out after {self.config.op_timeout:g}s"
+            ) from err
 
     # -- state bookkeeping ---------------------------------------------------
 

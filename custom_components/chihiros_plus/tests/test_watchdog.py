@@ -163,3 +163,64 @@ def test_success_clears_outage_start():
     tr.offline = False
     asyncio.run(wd.execute([_frame()]))
     assert wd.status.outage_since is None
+
+
+class HangingTransport(FakeTransport):
+    """A link that never answers: connect and/or write hang instead of failing."""
+
+    def __init__(self, hang_connect=False, hang_send=False):
+        super().__init__()
+        self.hang_connect = hang_connect
+        self.hang_send = hang_send
+
+    async def connect(self):
+        if self.hang_connect:
+            await asyncio.Event().wait()
+        await super().connect()
+
+    async def send(self, frame):
+        if self.hang_send:
+            await asyncio.Event().wait()
+        await super().send(frame)
+
+
+def _wd_timeout(transport, clock=None):
+    async def no_sleep(_s):
+        return None
+
+    return Watchdog(
+        transport,
+        WatchdogConfig(max_retries=1, op_timeout=0.05),
+        clock=clock or Clock(),
+        sleep=no_sleep,
+    )
+
+
+def test_hanging_write_fails_instead_of_stalling_forever():
+    clock = Clock()
+    tr = HangingTransport(hang_send=True)
+    wd = _wd_timeout(tr, clock)
+    ok = asyncio.run(asyncio.wait_for(wd.execute([_frame()]), 2))
+    assert ok is False
+    assert wd.status.state is not ConnectionState.CONNECTED
+    assert "timed out" in wd.status.last_error
+    clock.advance(130)
+    assert wd.poll_notification() is not None   # and the user hears about it
+
+
+def test_hanging_connect_fails_instead_of_stalling_forever():
+    tr = HangingTransport(hang_connect=True)
+    wd = _wd_timeout(tr)
+    ok = asyncio.run(asyncio.wait_for(wd.execute([_frame()]), 2))
+    assert ok is False
+    assert wd.status.outage_since is not None
+    assert "connect timed out" in wd.status.last_error
+
+
+def test_recovers_once_the_link_answers_again():
+    tr = HangingTransport(hang_send=True)
+    wd = _wd_timeout(tr)
+    assert asyncio.run(wd.execute([_frame()])) is False
+    tr.hang_send = False
+    assert asyncio.run(wd.execute([_frame()])) is True
+    assert wd.status.state is ConnectionState.CONNECTED

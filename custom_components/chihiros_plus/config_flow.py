@@ -129,7 +129,11 @@ class ChihirosConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ChihirosOptionsFlow(OptionsFlow):
-    """Options: currently just whether the panel appears in the sidebar."""
+    """Options: where the panel shows up.
+
+    Only reachable when the gear does not open the panel (``gear_panel`` off);
+    every other setting lives in the panel itself.
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -137,20 +141,18 @@ class ChihirosOptionsFlow(OptionsFlow):
         opts = self.config_entry.options
         if user_input is not None:
             show = bool(user_input.get("sidebar", True))
-            # Apply to this entry now; add/remove the shared panel to match.
-            from . import panel, sidebar_wanted
+            gear = bool(user_input.get("gear_panel", True))
+            # Apply to every entry (one shared panel), then sync the panel.
+            from . import panel
 
             for entry in self.hass.config_entries.async_entries(DOMAIN):
                 self.hass.config_entries.async_update_entry(
-                    entry, options={**entry.options, "sidebar": show}
+                    entry, options={**entry.options, "sidebar": show, "gear_panel": gear}
                 )
-            if sidebar_wanted(self.hass):
-                await panel.async_register_panel(self.hass)
-            else:
-                panel.async_remove_panel(self.hass)
+            await panel.async_sync_panel(self.hass)
             # Preserve every other option key on this entry.
             return self.async_create_entry(
-                title="", data={**opts, "sidebar": show}
+                title="", data={**opts, "sidebar": show, "gear_panel": gear}
             )
 
         return self.async_show_form(
@@ -159,7 +161,10 @@ class ChihirosOptionsFlow(OptionsFlow):
                 {
                     vol.Required(
                         "sidebar", default=bool(opts.get("sidebar", True))
-                    ): bool
+                    ): bool,
+                    vol.Required(
+                        "gear_panel", default=bool(opts.get("gear_panel", True))
+                    ): bool,
                 }
             ),
         )

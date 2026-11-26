@@ -22,9 +22,18 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .connection_log import (
+    EVENT_DISCONNECTED,
+    EVENT_FOUND_DISCONNECTED,
+    EVENT_RECONNECT_FAILED,
+    EVENT_RECONNECTED,
+    ConnectionEvent,
+    ConnectionLog,
+)
 from .const import DOMAIN
 from .controller import Calibration, LightController
 from .devices import ChihirosModel
@@ -62,6 +71,14 @@ HEALTH_CHECK_INTERVAL = timedelta(minutes=30)
 # is cancelled, so the next tick can start a fresh one. (Every BLE call is
 # already bounded by the watchdog's op_timeout; this guards everything else.)
 APPLY_STALE_AFTER = timedelta(minutes=10)
+# After the link drops on its own we reconnect straight away, but not more
+# often than this: a proxy that keeps dropping the link would otherwise be
+# hammered. Within this window the next 30 s tick does the reconnect instead.
+LINK_LOST_RECONNECT_MIN_GAP = timedelta(seconds=10)
+# The connection log lives in .storage so it survives a restart. Writes are
+# batched: a burst of drops and reconnects becomes one file write.
+CONNECTION_LOG_STORE_VERSION = 1
+CONNECTION_LOG_SAVE_DELAY = 10   # seconds
 
 # Default aquarium photoperiod when following the sun and the user hasn't set a
 # day length. A real sunrise→sunset day (13–16 h in summer) is far too long for
@@ -86,6 +103,15 @@ class CoordinatorData:
     rssi: int | None
     seconds_since_success: float | None
     is_confirmed: bool
+    # Length of the current outage (0 while connected), timed from the real
+    # drop or first failure. Not "time since the last write": an idle link
+    # sends nothing for up to half an hour.
+    seconds_unreachable: float = 0.0
+
+
+def connection_log_store_key(entry_id: str) -> str:
+    """The .storage key that holds one lamp's connection log."""
+    return f"{DOMAIN}.connection_log.{entry_id}"
 
 
 class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
@@ -111,6 +137,18 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.model = model
         self.transport = transport
         self.watchdog = Watchdog(transport, watchdog_config or WatchdogConfig())
+        # History of link drops and reconnects, for diagnostics and the panel.
+        self.connection_log = ConnectionLog()
+        self._log_store: Store[dict] = Store(
+            hass,
+            CONNECTION_LOG_STORE_VERSION,
+            connection_log_store_key(entry.entry_id),
+        )
+        self._outage_started: float | None = None   # monotonic, while in an outage
+        self._outage_failure_logged = False
+        self._last_link_lost_reconnect: float = 0.0
+        if hasattr(transport, "on_link_lost"):
+            transport.on_link_lost = self._on_link_lost
         self.controller = LightController(
             entry.title, self.watchdog, calibration=calibration
         )
@@ -337,6 +375,12 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             self.entry, options={**self.entry.options, "sidebar": bool(enabled)}
         )
 
+    async def async_set_gear_panel(self, enabled: bool) -> None:
+        """Persist whether the integration's gear opens the panel (per entry)."""
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "gear_panel": bool(enabled)}
+        )
+
     async def async_set_moonlight(
         self,
         enabled: bool,
@@ -536,7 +580,163 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def async_reconnect(self) -> bool:
         await self.transport.disconnect()
-        return await self.watchdog.execute([])  # empty -> just (re)connect
+        ok = await self.watchdog.execute([])  # empty -> just (re)connect
+        self._track_outage()
+        return ok
+
+    # -- connection log persistence -----------------------------------------
+
+    async def async_load_connection_log(self) -> None:
+        """Restore the log from .storage. Called once, before the first refresh."""
+        try:
+            stored = await self._log_store.async_load()
+        except Exception:  # pragma: no cover - a corrupt file must not block setup
+            _LOGGER.warning("%s: could not read the stored connection log", self.name)
+            return
+        if isinstance(stored, dict):
+            self.connection_log.load(stored.get("events"))
+
+    async def async_save_connection_log(self) -> None:
+        """Write the log now (on unload), instead of waiting for the delay."""
+        await self._log_store.async_save(self._log_data())
+
+    def _log_data(self) -> dict:
+        return {"events": self.connection_log.to_list()}
+
+    def _log_event(self, event: ConnectionEvent) -> None:
+        self.connection_log.add(event)
+        self._log_store.async_delay_save(self._log_data, CONNECTION_LOG_SAVE_DELAY)
+
+    # -- link loss -----------------------------------------------------------
+
+    def _on_link_lost(self) -> None:
+        """Called by the transport when the link drops without us asking.
+
+        Bleak may call this outside the event loop, so hop onto it first.
+        """
+        self.hass.loop.call_soon_threadsafe(self._handle_link_lost)
+
+    @callback
+    def _handle_link_lost(self) -> None:
+        idle = self.watchdog.seconds_since_success()
+        self.watchdog.mark_link_lost()
+        if self._outage_started is None:
+            self._outage_started = time.monotonic()
+            self._outage_failure_logged = False
+        self._log_event(
+            ConnectionEvent(
+                kind=EVENT_DISCONNECTED,
+                at=self._now_iso(),
+                rssi=self._rssi(),
+                source=self._source(),
+                seconds=idle,
+            )
+        )
+        _LOGGER.info(
+            "%s: Bluetooth link dropped (idle %s s, rssi %s, via %s); reconnecting",
+            self.name,
+            round(idle) if idle is not None else "?",
+            self._rssi(),
+            self._source(),
+        )
+        # Show "reconnecting" right away instead of a stale "connected".
+        phase, desired = self._pending
+        self.async_set_updated_data(self._build_snapshot(phase, desired))
+        now = time.monotonic()
+        if now - self._last_link_lost_reconnect >= LINK_LOST_RECONNECT_MIN_GAP.total_seconds():
+            self._last_link_lost_reconnect = now
+            self._schedule_apply()
+
+    def _detect_silent_drop(self) -> None:
+        """Log a link that is gone although no drop was reported.
+
+        Without this, a proxy that never calls back would leave no trace at
+        all: the next write simply reconnects as if nothing happened.
+        """
+        if (
+            self.transport.is_connected
+            or self._outage_started is not None
+            or self.watchdog.status.state is not ConnectionState.CONNECTED
+        ):
+            return
+        idle = self.watchdog.seconds_since_success()
+        self.watchdog.mark_link_lost()
+        self._outage_started = time.monotonic()
+        self._outage_failure_logged = False
+        self._log_event(
+            ConnectionEvent(
+                kind=EVENT_FOUND_DISCONNECTED,
+                at=self._now_iso(),
+                rssi=self._rssi(),
+                source=self._source(),
+                seconds=idle,
+            )
+        )
+        _LOGGER.info(
+            "%s: Bluetooth link found down without a drop report (idle %s s, via %s)",
+            self.name,
+            round(idle) if idle is not None else "?",
+            self._source(),
+        )
+
+    def _track_outage(self) -> None:
+        """Log the end of an outage, or the first failed reconnect within one."""
+        st = self.watchdog.status
+        if st.state is ConnectionState.CONNECTED:
+            if self._outage_started is not None:
+                self._log_event(
+                    ConnectionEvent(
+                        kind=EVENT_RECONNECTED,
+                        at=self._now_iso(),
+                        rssi=self._rssi(),
+                        source=self._source(),
+                        seconds=time.monotonic() - self._outage_started,
+                    )
+                )
+                self._outage_started = None
+                self._outage_failure_logged = False
+            return
+        if self._outage_started is None:
+            # An outage that began with a failed write, not a reported drop.
+            self._outage_started = time.monotonic() - self.watchdog.seconds_unreachable()
+        if (
+            st.state in (ConnectionState.OFFLINE, ConnectionState.ERROR)
+            and not self._outage_failure_logged
+        ):
+            self._outage_failure_logged = True
+            self._log_event(
+                ConnectionEvent(
+                    kind=EVENT_RECONNECT_FAILED,
+                    at=self._now_iso(),
+                    rssi=self._rssi(),
+                    source=self._source(),
+                    seconds=time.monotonic() - self._outage_started,
+                    detail=st.last_error,
+                )
+            )
+
+    @staticmethod
+    def _now_iso() -> str:
+        return dt_util.now().isoformat(timespec="seconds")
+
+    def _rssi(self) -> int | None:
+        return getattr(self.transport, "rssi", None)
+
+    def _source(self) -> str | None:
+        return getattr(self.transport, "source", None)
+
+    def _source_name(self) -> str | None:
+        """Friendly name of the adapter / proxy, e.g. "Aquarium BT Proxy"."""
+        source = self._source()
+        if not source:
+            return None
+        try:
+            from homeassistant.components import bluetooth
+
+            scanner = bluetooth.async_scanner_by_source(self.hass, source)
+        except Exception:  # pragma: no cover - older HA or bluetooth not loaded
+            return None
+        return getattr(scanner, "name", None) if scanner else None
 
     # -- the single apply path ----------------------------------------------
 
@@ -607,6 +807,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
         )
 
     async def _run_apply(self) -> None:
+        self._detect_silent_drop()
         phase, desired = self._pending
         now = time.monotonic()
         health_check = (
@@ -623,6 +824,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             await self._apply_co2()
         except Exception:  # pragma: no cover - never let CO₂ break the update
             _LOGGER.debug("%s: CO2 apply failed", self.name, exc_info=True)
+        self._track_outage()
         self._check_notifications()
         # Push the post-apply state (now with confirmation) to entities without
         # re-entering the update loop.
@@ -655,6 +857,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             rssi=st.rssi,
             seconds_since_success=self.watchdog.seconds_since_success(),
             is_confirmed=self.controller.is_confirmed,
+            seconds_unreachable=self.watchdog.seconds_unreachable(),
         )
 
     # -- serialisation for the custom panel / websocket API -----------------
@@ -690,6 +893,7 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "moonlight_switch": self._moonlight_switch,
             "moonlight_invert": self._moonlight_invert,
             "sidebar": bool(self.entry.options.get("sidebar", True)),
+            "gear_panel": bool(self.entry.options.get("gear_panel", True)),
             "version": self.hass.data.get(DOMAIN, {}).get("version", ""),
             "maintenance": self._maintenance,
             "treatment": self._treatment_snapshot(),
@@ -701,6 +905,10 @@ class ChihirosCoordinator(DataUpdateCoordinator[CoordinatorData]):
             "connection": d.connection.value,
             "rssi": d.rssi,
             "seconds_since_success": d.seconds_since_success,
+            "seconds_unreachable": round(d.seconds_unreachable),
+            "connection_source": self._source(),
+            "connection_source_name": self._source_name(),
+            "connection_log": self.connection_log.recent(20),
         }
 
     @callback

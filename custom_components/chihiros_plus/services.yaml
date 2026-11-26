@@ -73,3 +73,9 @@ sync_time:
     entity:
       integration: chihiros_plus
       domain: light
+
+set_panel_enabled:
+  fields:
+    enabled:
+      required: true
+      selector: { boolean: {} }

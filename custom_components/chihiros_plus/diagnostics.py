@@ -32,9 +32,16 @@ async def async_get_config_entry_diagnostics(
             "consecutive_failures": status.consecutive_failures,
             "last_error": status.last_error,
             "seconds_since_success": data.seconds_since_success,
+            "seconds_unreachable": data.seconds_unreachable,
+            "source": getattr(coordinator.transport, "source", None),
         },
+        # Every link drop / reconnect since Home Assistant started, newest
+        # first. The "disconnected" entries show how long the link sat idle
+        # before it dropped, which is the first clue to who closed it.
+        "connection_log": coordinator.connection_log.recent(),
         "watchdog_config": {
             "max_retries": coordinator.watchdog.config.max_retries,
             "retry_interval": coordinator.watchdog.config.retry_interval,
+            "op_timeout": coordinator.watchdog.config.op_timeout,
         },
     }

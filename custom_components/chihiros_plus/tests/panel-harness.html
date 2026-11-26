@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chihiros panel harness</title>
+<!--
+  Runs the real panel outside Home Assistant against a fake websocket.
+  Serve the integration folder (python3 -m http.server) and open
+  tests/panel-harness.html. Query options:
+    ?chrome=1      stand-in for HA's collapsed sidebar (for screenshots)
+    &dark=1        dark theme
+    &lang=en       panel language (default nl)
+    &settings=connection   open the settings dialog on a section
+-->
+<style>
+  :root {
+    --primary-background-color: #eef1f3; --card-background-color: #ffffff;
+    --secondary-background-color: #eef1f3; --primary-text-color: #15191c;
+    --secondary-text-color: #5d666d; --divider-color: #e0e3e6; --disabled-text-color: #a3aab0;
+    --success-color: #0f9d7a; --warning-color: #d9971f; --error-color: #d8434f;
+  }
+  body.dark {
+    --primary-background-color: #111416; --card-background-color: #1c2023;
+    --secondary-background-color: #23282b; --primary-text-color: #eef2f4;
+    --secondary-text-color: #9aa5ad; --divider-color: #30363a; --disabled-text-color: #5b6369;
+  }
+  body { margin: 0; font-family: Roboto, system-ui, sans-serif; background: var(--primary-background-color); }
+  #shell { display: flex; min-height: 100vh; }
+  #sidebar { display: none; }
+  body.chrome #sidebar { display: flex; width: 56px; flex: none; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 0; background: var(--card-background-color); border-right: 1px solid var(--divider-color);
+    position: sticky; top: 0; height: 100vh; }
+  #sidebar span { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--secondary-text-color); }
+  #sidebar span.on { color: #0a9d94; background: rgba(10,157,148,.14); }
+  #sidebar .grow { flex: 1; }
+  chihiros-panel { flex: 1; min-width: 0; }
+  @media (max-width: 640px) { body.chrome #sidebar { display: none; } }
+</style>
+</head>
+<body>
+<div id="shell">
+  <nav id="sidebar" aria-hidden="true">
+    <span><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"/></svg></span>
+    <span><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M13,3V9H21V3M13,21H21V11H13M3,21H11V15H3M3,13H11V3H3V13Z"/></svg></span>
+    <span><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15,19L9,16.89V5L15,7.11M20.5,3C20.44,3 20.39,3 20.34,3L15,5.1L9,3L3.36,4.9C3.15,4.97 3,5.15 3,5.38V20.5A0.5,0.5 0 0,0 3.5,21C3.55,21 3.61,21 3.66,20.97L9,18.9L15,21L20.64,19.1C20.85,19 21,18.85 21,18.62V3.5A0.5,0.5 0 0,0 20.5,3Z"/></svg></span>
+    <span class="on"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12,20A6,6 0 0,1 6,14C6,10 12,3.25 12,3.25C12,3.25 18,10 18,14A6,6 0 0,1 12,20Z"/></svg></span>
+    <span class="grow"></span>
+    <span><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19Z"/></svg></span>
+  </nav>
+  <chihiros-panel></chihiros-panel>
+</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+if (q.get("chrome")) document.body.classList.add("chrome");
+const dark = !!q.get("dark");
+if (dark) document.body.classList.add("dark");
+
+const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+const points = Array.from({ length: 96 }, (_, i) => {
+  const m = i * 15, b = m < 600 || m > 1080 ? 0 : Math.round(80 * Math.sin(Math.PI * (m - 600) / 480));
+  return { m, b, rgbw: [b, b, b, b] };
+});
+const device = {
+  entry_id: "lamp1", name: "DYSL30D6469AAA95ED", tank: "Aquarium", onboarded: true, model: "WRGB II Slim",
+  mode: "program", program_key: "plant_growth", program_name: "Plant Growth", phase: "peak", brightness: 62,
+  start_minute: 600, day_length_minutes: 480, follow_sun: true, moonlight: true, moonlight_available: true,
+  moonlight_mode: "switch", moonlight_hours: 3, moonlight_off_minute: 1380, moonlight_switch: "input_boolean.nachtmodus",
+  moonlight_invert: true, sidebar: true, gear_panel: true, version: "0.9.0", maintenance: false, treatment: null,
+  co2: { enabled: false, switch: null, before_on: 60, before_off: 60 },
+  notify: { service: "notify.mobile_app_old_iphone", after: 2, reconnect: true },
+  desired: [62, 58, 60, 70], confirmed: [62, 58, 60, 70], is_confirmed: true,
+  connection: "connected", rssi: -57, seconds_since_success: 300,
+  seconds_unreachable: 0, connection_source: "C8:2E:18:51:A3:7A", connection_source_name: "Aquarium BT Proxy",
+  connection_log: [
+    { kind: "reconnected", at: ago(60 * 20 + 1), seconds: 4.8 },
+    { kind: "disconnected", at: ago(60 * 20 + 1.1), rssi: -58, seconds: 660 },
+    { kind: "reconnected", at: ago(60 * 30), seconds: 5.1 },
+    { kind: "found_disconnected", at: ago(60 * 30 + 0.1), seconds: 13200 },
+  ],
+};
+const replies = {
+  "chihiros_plus/list_devices": () => ({ devices: [device] }),
+  "chihiros_plus/get_curve": () => ({ program_key: device.program_key, program_name: device.program_name, now_minute: 760, points }),
+  "chihiros_plus/list_notify_services": () => ({ services: [{ service: "notify.mobile_app_iphone_johann", name: "iPhone" }] }),
+  "chihiros_plus/list_switches": () => ({ switches: [{ entity_id: "input_boolean.nachtmodus", name: "Nachtmodus" }] }),
+  "chihiros_plus/set_sidebar": (m) => { device.sidebar = m.enabled; return device; },
+  "chihiros_plus/set_gear_panel": (m) => { device.gear_panel = m.enabled; return device; },
+};
+const hass = {
+  language: q.get("lang") || "nl",
+  locale: { language: q.get("lang") || "nl" },
+  themes: { darkMode: dark },
+  connection: {
+    sendMessagePromise: async (msg) => {
+      console.log("ws", msg);
+      const fn = replies[msg.type];
+      return fn ? fn(msg) : device;
+    },
+  },
+};
+await import("../frontend/chihiros-panel.js?v=harness");
+const panel = document.querySelector("chihiros-panel");
+panel.hass = hass;
+const section = q.get("settings");
+if (section) {
+  const wait = () => panel.shadowRoot.getElementById("open-settings")
+    ? panel._openSettings(section) : setTimeout(wait, 50);
+  wait();
+}
+</script>
+</body>
+</html>

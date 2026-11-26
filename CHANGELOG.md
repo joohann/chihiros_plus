@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.9.0 — Settings in one place, behind the gear
+
+### Summary
+
+All settings now live in one settings window, opened with the gear button at
+the top of the panel. The gear on the integration page opens the panel too.
+
+### What changed
+
+- **Gear button and settings window**: a glass dialog with the sections
+  Aquarium, Schedule, Moonlight, CO₂, Notifications, Connection, Display and
+  About on the left and one section at a time on the right. Changes are saved
+  straight away. A section that needs attention (for example a phone that no
+  longer exists for notifications) is marked in the list.
+- **Connection section**: status, the Bluetooth adapter or proxy by name, a
+  reconnect button and the connection log as a readable table.
+- **Gear on the integration page opens the panel** instead of the small
+  options dialog. Switch this off under Display, or with the new
+  `chihiros_plus.set_panel_enabled` service if the panel ever fails to load.
+- **Translations**: the settings window follows Home Assistant's language,
+  English and Dutch to start with (`frontend/translations`,
+  `tools/i18n_check.py` to find missing keys).
+- The old "Setup" card on the main screen is gone; its content moved into the
+  settings window.
+
+## v0.8.7 — A dropped Bluetooth link is noticed straight away
+
+### Summary
+
+The connection could look fine while the lamp had in fact been unreachable
+for a while, and "Unreachable for" kept showing **30 minutes** after every
+short reconnect, several times a day.
+
+### The problem
+
+When the light output doesn't change, nothing is sent to the lamp. If the
+Bluetooth link dropped in that quiet period (the lamp or Bluetooth proxy
+closing it), nobody noticed: the connection stayed "connected" until the
+half-hourly health check tried to write, found the link gone and reconnected
+in about a second. "Unreachable for" then showed the time since the last
+write, which was always about 30 minutes, not the real length of the outage.
+
+### The fix
+
+- **A dropped link is picked up at once**: the connection shows
+  "reconnecting" and the lamp is reconnected within seconds, with the current
+  output sent again in case the lamp lost it.
+- **"Unreachable for" measures the real outage**, from the moment the link
+  dropped (or the first failed attempt) until it is back.
+- **Connection log**: every drop, reconnect and failed reconnect is recorded
+  with the time, signal strength, the Bluetooth adapter or proxy used, and how
+  long the link had been idle before it dropped. A link that turns out to be
+  gone without the adapter or proxy ever reporting it is logged too
+  ("found_disconnected"). It is included in the
+  integration's diagnostics download and kept across restarts (the most
+  recent 100 events per lamp), so a pattern (for example a proxy that
+  restarts, or a lamp that closes quiet links) becomes visible.
+
 ## v0.8.6 — No more silent stalls when Bluetooth hangs
 
 ### Summary

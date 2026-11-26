@@ -45,6 +45,10 @@ class HAChihirosTransport:
         self._client: BleakClientWithServiceCache | None = None
         self._lock = asyncio.Lock()
         self._rssi: int | None = None
+        self._source: str | None = None
+        # Called when the link drops without us asking for it. Set by the
+        # coordinator; kept optional so the transport works on its own.
+        self.on_link_lost: Callable[[], None] | None = None
 
     # -- link state ----------------------------------------------------------
 
@@ -56,11 +60,20 @@ class HAChihirosTransport:
     def rssi(self) -> int | None:
         return self._rssi
 
-    def update_ble_device(self, ble_device: BLEDevice, rssi: int | None) -> None:
+    @property
+    def source(self) -> str | None:
+        """The adapter or Bluetooth proxy that last heard the lamp."""
+        return self._source
+
+    def update_ble_device(
+        self, ble_device: BLEDevice, rssi: int | None, source: str | None = None
+    ) -> None:
         """Refresh the BLEDevice/rssi from a new advertisement (called by HA)."""
         self._ble_device = ble_device
         if rssi is not None:
             self._rssi = rssi
+        if source:
+            self._source = source
 
     # -- connection ----------------------------------------------------------
 
@@ -103,9 +116,21 @@ class HAChihirosTransport:
 
     # -- callbacks -----------------------------------------------------------
 
-    def _on_disconnect(self, _client: BleakClientWithServiceCache) -> None:
-        _LOGGER.debug("%s: disconnected", self._name)
+    def _on_disconnect(self, client: BleakClientWithServiceCache) -> None:
+        # disconnect() clears _client before closing, so a callback for a
+        # client we no longer hold is our own, intentional disconnect.
+        if self._client is not client:
+            _LOGGER.debug("%s: disconnected (by us)", self._name)
+            return
         self._client = None
+        _LOGGER.debug(
+            "%s: link dropped (rssi %s, via %s)", self._name, self._rssi, self._source
+        )
+        if self.on_link_lost is not None:
+            try:
+                self.on_link_lost()
+            except Exception:  # pragma: no cover - never let a callback crash bleak
+                _LOGGER.exception("%s: link-lost handler error", self._name)
 
     def _on_notify(self, _char: object, data: bytearray) -> None:
         if self._notify_handler is None:

@@ -79,11 +79,18 @@ class LightController:
         """Send a calibrated RGBW to the lamp. Returns True if confirmed.
 
         Skips the write when the calibrated target is unchanged and already
-        confirmed, unless ``force`` is set (used by emergency off).
+        confirmed, unless ``force`` is set (used by emergency off). A dropped
+        link is never deduped: the write then reconnects and re-asserts the
+        output, in case the lamp lost it along with the connection.
         """
         target = self.calibration.apply(color)
         self.desired = target
-        if not force and target == self._last_sent and self.confirmed == target:
+        if (
+            not force
+            and target == self._last_sent
+            and self.confirmed == target
+            and self.watchdog.transport.is_connected
+        ):
             return True
         # Always assert manual mode before writing channels, otherwise the
         # lamp's own internal schedule (if active) overrides our output — the

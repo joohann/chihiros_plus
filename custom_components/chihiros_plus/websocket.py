@@ -30,6 +30,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_follow_sun)
     websocket_api.async_register_command(hass, ws_set_moonlight)
     websocket_api.async_register_command(hass, ws_set_sidebar)
+    websocket_api.async_register_command(hass, ws_set_gear_panel)
     websocket_api.async_register_command(hass, ws_set_maintenance)
     websocket_api.async_register_command(hass, ws_set_tank)
     websocket_api.async_register_command(hass, ws_complete_onboarding)
@@ -155,12 +156,31 @@ async def ws_set_sidebar(hass, connection, msg: dict[str, Any]) -> None:
     # One shared panel: apply the choice to every entry, then add/remove it.
     for c in _coordinators(hass):
         await c.async_set_sidebar(msg["enabled"])
-    from . import panel, sidebar_wanted
+    from . import panel
 
-    if sidebar_wanted(hass):
-        await panel.async_register_panel(hass)
-    else:
-        panel.async_remove_panel(hass)
+    await panel.async_sync_panel(hass)
+    connection.send_result(msg["id"], coordinator.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chihiros_plus/set_gear_panel",
+        vol.Required("entry_id"): str,
+        vol.Required("enabled"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_set_gear_panel(hass, connection, msg: dict[str, Any]) -> None:
+    """Whether the gear on the integration page opens this panel."""
+    coordinator = _coordinator(hass, msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device")
+        return
+    for c in _coordinators(hass):
+        await c.async_set_gear_panel(msg["enabled"])
+    from . import panel
+
+    await panel.async_sync_panel(hass)
     connection.send_result(msg["id"], coordinator.snapshot())
 
 

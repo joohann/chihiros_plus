@@ -44,6 +44,46 @@ const CONN_COLOR = {
   error: "var(--error-color,#d8434f)", unknown: "var(--disabled-text-color,#8a8a8a)",
 };
 
+// Panel strings live in translations/<lang>.json next to this file. English is
+// the source and the fallback; tools/i18n_check.py reports missing keys.
+const I18N_BASE = new URL("./translations/", import.meta.url);
+const I18N = { en: null, cur: null, lang: "en" };
+async function loadI18n(language) {
+  const lang = String(language || "en").toLowerCase().split("-")[0];
+  const get = async (l) => {
+    try {
+      // Same ?v=<version> as the panel module, so an update is never served stale.
+      const r = await fetch(new URL(`${l}.json${new URL(import.meta.url).search}`, I18N_BASE));
+      return r.ok ? await r.json() : null;
+    } catch (e) { return null; }
+  };
+  if (!I18N.en) I18N.en = (await get("en")) || {};
+  I18N.lang = lang;
+  I18N.cur = lang === "en" ? I18N.en : ((await get(lang)) || I18N.en);
+}
+function t(key, vars) {
+  let text = (I18N.cur && I18N.cur[key]) || (I18N.en && I18N.en[key]) || key;
+  if (vars) for (const [k, v] of Object.entries(vars)) text = text.split(`{${k}}`).join(String(v));
+  return text;
+}
+
+// Settings dialog sections, in rail order. Icons are Material Design paths
+// (the same set Home Assistant uses), so no icon font is needed.
+const SECTIONS = [
+  ["aquarium", "M12,20A6,6 0 0,1 6,14C6,10 12,3.25 12,3.25C12,3.25 18,10 18,14A6,6 0 0,1 12,20Z"],
+  ["schedule", "M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z"],
+  ["moonlight", "M17.75,4.09L15.22,6.03L16.13,9.09L13.5,7.28L10.87,9.09L11.78,6.03L9.25,4.09L12.44,4L13.5,1L14.56,4L17.75,4.09M21.25,11L19.61,12.25L20.2,14.23L18.5,13.06L16.8,14.23L17.39,12.25L15.75,11L17.81,10.95L18.5,9L19.19,10.95L21.25,11M18.97,15.95C19.8,15.87 20.69,17.05 20.16,17.8C19.84,18.25 19.5,18.67 19.08,19.07C15.17,23 8.84,23 4.94,19.07C1.03,15.17 1.03,8.83 4.94,4.93C5.34,4.53 5.76,4.17 6.21,3.85C6.96,3.32 8.14,4.21 8.06,5.04C7.79,7.9 8.75,10.87 10.95,13.06C13.14,15.26 16.1,16.22 18.97,15.95M17.33,17.97C14.5,17.81 11.7,16.64 9.53,14.5C7.36,12.31 6.2,9.5 6.04,6.68C3.23,9.82 3.34,14.64 6.35,17.66C9.37,20.67 14.19,20.78 17.33,17.97Z"],
+  ["co2", "M7.2,11.2C8.97,11.2 10.4,12.63 10.4,14.4C10.4,16.17 8.97,17.6 7.2,17.6C5.43,17.6 4,16.17 4,14.4C4,12.63 5.43,11.2 7.2,11.2M14.8,16A2,2 0 0,1 16.8,18A2,2 0 0,1 14.8,20A2,2 0 0,1 12.8,18A2,2 0 0,1 14.8,16M15.2,4A4.8,4.8 0 0,1 20,8.8C20,11.45 17.85,13.6 15.2,13.6A4.8,4.8 0 0,1 10.4,8.8C10.4,6.15 12.55,4 15.2,4Z"],
+  ["notify", "M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M14,21A2,2 0 0,1 12,23A2,2 0 0,1 10,21"],
+  ["connection", "M14.88,16.29L13,18.17V14.41M13,5.83L14.88,7.71L13,9.58M17.71,7.71L12,2H11V9.58L6.41,5L5,6.41L10.59,12L5,17.58L6.41,19L11,14.41V22H12L17.71,16.29L13.41,12L17.71,7.71Z"],
+  ["display", "M3,4H21V8H19V20H17V8H7V20H5V8H3V4M8,9H16V11H8V9Z"],
+  ["about", "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"],
+];
+const GEAR_PATH = "M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z";
+const CLOSE_PATH = "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
+const icon = (d, size = 20) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
+
 class ChihirosPanel extends HTMLElement {
   constructor() {
     super();
@@ -61,9 +101,10 @@ class ChihirosPanel extends HTMLElement {
     this._playRAF = null;
     this._playing = false;
     this._narrow = false;          // HA sets this true on mobile/narrow layouts
-    this._collapsed = { program: true, setup: true, schedule: true, moonlight: true, tanks: true, co2: true, notify: true };
+    this._collapsed = { program: true };
     this._wiz = null;              // first-time setup wizard state (null = not in it)
     this._progOpen = false;        // program multi-select dropdown open?
+    this._settings = null;         // open settings section key, null = closed
   }
 
   set narrow(value) {
@@ -92,10 +133,14 @@ class ChihirosPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    const dark = !!(hass.themes && hass.themes.darkMode);
+    if (dark !== this.hasAttribute("dark")) this.toggleAttribute("dark", dark);
     if (!this._built) {
       this._build();
       this._built = true;
-      this._load();
+      loadI18n(hass.language).then(() => this._load());
+    } else if (I18N.lang !== String(hass.language || "en").toLowerCase().split("-")[0]) {
+      loadI18n(hass.language).then(() => this._render());
     }
   }
 
@@ -110,6 +155,7 @@ class ChihirosPanel extends HTMLElement {
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
     clearTimeout(this._retryTimer);
+    if (this._escHandler) window.removeEventListener("keydown", this._escHandler);
   }
 
   async _ws(msg) {
@@ -236,10 +282,11 @@ class ChihirosPanel extends HTMLElement {
 
   async _setSidebar(enabled) {
     this._lastInteraction = Date.now();
-    this._toast(enabled ? "Panel shown in sidebar" : "Panel hidden from sidebar", "ok");
+    this._toast(t(enabled ? "toast_sidebar_on" : "toast_sidebar_off"), "ok");
     try {
       await this._ws({ type: "chihiros_plus/set_sidebar", entry_id: this._dev().entry_id, enabled });
-    } catch (err) { this._toast("Could not change sidebar", "error"); }
+    } catch (err) { this._toast(t("toast_save_failed"), "error"); }
+    await this._load();
   }
 
   _moonlightConfig(dev) {
@@ -327,9 +374,9 @@ class ChihirosPanel extends HTMLElement {
     try {
       await this._ws({ type: "chihiros_plus/set_tank", entry_id: entryId, tank });
       this._selected = tank || this._selected;   // follow the lamp into its tank
-      this._toast("Tank updated ✓", "ok");
+      this._toast(t("toast_tank_saved"), "ok");
     } catch (err) {
-      this._toast("Could not update tank", "error");
+      this._toast(t("toast_save_failed"), "error");
     }
     await this._load();
   }
@@ -337,7 +384,7 @@ class ChihirosPanel extends HTMLElement {
   // -- rendering ------------------------------------------------------------
   _build() {
     this.shadowRoot.innerHTML =
-      `<style>${STYLES}</style><div id="topbar"></div><div id="root"></div><div id="toast" class="toast"></div>`;
+      `<style>${STYLES}</style><div id="topbar"></div><div id="root"></div><div id="dialog-root"></div><div id="toast" class="toast"></div>`;
     this._syncTopbar();
   }
 
@@ -410,7 +457,10 @@ class ChihirosPanel extends HTMLElement {
           <h1>${esc(this._selected)}</h1>
           <div class="subline"><span class="led" style="background:${CONN_COLOR[dev.connection]}"></span>${CONN_LABEL[dev.connection] || dev.connection}${this._members().length > 1 ? ` · ${this._members().length} lamps` : ""}${dev.rssi != null ? ` · <span class="mono">${dev.rssi} dBm</span>` : ""}</div>
         </div>
-        ${Object.keys(this._tanks).length > 1 ? this._switcher() : ""}
+        <div class="headr">
+          ${Object.keys(this._tanks).length > 1 ? this._switcher() : ""}
+          <button class="gear" id="open-settings" aria-label="${esc(t("settings_open"))}" title="${esc(t("settings_open"))}">${icon(GEAR_PATH, 22)}</button>
+        </div>
       </div>
 
       ${dev.treatment ? `
@@ -477,45 +527,6 @@ class ChihirosPanel extends HTMLElement {
         </div>
       </section>
 
-      <section class="card ctlcard">
-        <div class="setrow" data-collapse="setup">
-          <span class="ctxt"><b>Setup</b><small>Schedule · CO₂ · notifications · tanks &amp; lamps</small></span>
-          <span class="chev">${this._collapsed.setup ? "›" : "▾"}</span>
-        </div>
-        ${!this._collapsed.setup ? `
-          <div class="setbody">
-            <div class="setrow sub" data-collapse="schedule">
-              <span class="ctxt"><b>Schedule &amp; timing</b><small>${this._scheduleValue(dev)}</small></span>
-              <span class="chev">${this._collapsed.schedule ? "›" : "▾"}</span>
-            </div>
-            ${!this._collapsed.schedule ? `<div class="subbody">${this._scheduleContent(dev)}</div>` : ""}
-            <div class="setrow sub" data-collapse="moonlight">
-              <span class="ctxt"><b>Moonlight</b><small>${this._moonlightValue(dev)}</small></span>
-              <span class="chev">${this._collapsed.moonlight ? "›" : "▾"}</span>
-            </div>
-            ${!this._collapsed.moonlight ? `<div class="subbody">${this._moonlightContent(dev)}</div>` : ""}
-            <div class="setrow sub" data-collapse="co2">
-              <span class="ctxt"><b>CO₂</b><small>${this._co2Value(dev)}</small></span>
-              <span class="chev">${this._collapsed.co2 ? "›" : "▾"}</span>
-            </div>
-            ${!this._collapsed.co2 ? `<div class="subbody">${this._co2Content(dev)}</div>` : ""}
-            <div class="setrow sub" data-collapse="notify">
-              <span class="ctxt"><b>Notifications</b><small>${this._notifyValue(dev)}</small></span>
-              <span class="chev">${this._collapsed.notify ? "›" : "▾"}</span>
-            </div>
-            ${!this._collapsed.notify ? `<div class="subbody">${this._notifyContent(dev)}</div>` : ""}
-            <div class="setrow sub" data-collapse="tanks">
-              <span class="ctxt"><b>Tanks &amp; lamps</b><small>${this._tankValue()}</small></span>
-              <span class="chev">${this._collapsed.tanks ? "›" : "▾"}</span>
-            </div>
-            ${!this._collapsed.tanks ? `<div class="subbody">${this._tankContent()}</div>` : ""}
-            <label class="setrow sub sidebarrow">
-              <span class="ctxt"><b>Show in sidebar</b><small>Hide the Chihiros Plus panel; re-enable via the integration's Configure</small></span>
-              <input type="checkbox" id="sidebar-toggle" ${dev.sidebar === false ? "" : "checked"}>
-            </label>
-          </div>` : ""}
-      </section>
-
       <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}" version="${esc(dev.version || "")}"></majikan-donate>
       <div class="foot mono">Local Bluetooth · no cloud · schedule stored on lamp</div>`;
 
@@ -552,52 +563,10 @@ class ChihirosPanel extends HTMLElement {
     const rc = this.shadowRoot.getElementById("reconnect");
     if (rc) rc.addEventListener("click", () => this._reconnect());
 
-    this.shadowRoot.querySelectorAll("[data-tank]").forEach((inp) =>
-      inp.addEventListener("change", () => this._setTank(inp.dataset.tank, inp.value.trim())));
-    this.shadowRoot.querySelectorAll("[data-identify]").forEach((b) =>
+    this.shadowRoot.getElementById("root").querySelectorAll("[data-identify]").forEach((b) =>
       b.addEventListener("click", () => this._identify(b.dataset.identify)));
-    const sidebarToggle = this.shadowRoot.getElementById("sidebar-toggle");
-    if (sidebarToggle) sidebarToggle.addEventListener("change", () => this._setSidebar(sidebarToggle.checked));
-
-    const co2apply = () => {
-      const sw = this.shadowRoot.getElementById("co2-switch").value || null;
-      const on = parseInt(this.shadowRoot.getElementById("co2-on").value, 10) || 0;
-      const off = parseInt(this.shadowRoot.getElementById("co2-off").value, 10) || 0;
-      this._setCo2(sw, on, off);
-    };
-    const notifyApply = () => {
-      const svc = this.shadowRoot.getElementById("notify-service").value || null;
-      const after = parseInt(this.shadowRoot.getElementById("notify-after").value, 10) || 2;
-      const reconnect = this.shadowRoot.getElementById("notify-reconnect").checked;
-      this._setNotify(svc, after, reconnect);
-    };
-    ["notify-service", "notify-after", "notify-reconnect"].forEach((id) => {
-      const el = this.shadowRoot.getElementById(id);
-      if (el) el.addEventListener("change", notifyApply);
-    });
-    const notifyTest = this.shadowRoot.getElementById("notify-test");
-    if (notifyTest) notifyTest.addEventListener("click", () => this._testNotify());
-    ["co2-switch", "co2-on", "co2-off"].forEach((id) => {
-      const el = this.shadowRoot.getElementById(id);
-      if (el) el.addEventListener("change", co2apply);
-    });
-
-    const moonEnable = this.shadowRoot.getElementById("moon-enable");
-    if (moonEnable) moonEnable.addEventListener("change", () => this._applyMoonlight({ enabled: moonEnable.checked }));
-    const moonMode = this.shadowRoot.getElementById("moon-mode");
-    if (moonMode) moonMode.addEventListener("change", () => this._applyMoonlight({ mode: moonMode.value }));
-    const moonHours = this.shadowRoot.getElementById("moon-hours");
-    const moonHoursVal = this.shadowRoot.getElementById("moon-hours-val");
-    if (moonHours) {
-      moonHours.addEventListener("input", () => { if (moonHoursVal) moonHoursVal.textContent = `${(+moonHours.value).toFixed(1)} h`; });
-      moonHours.addEventListener("change", () => this._applyMoonlight({ hours: +moonHours.value }));
-    }
-    const moonTime = this.shadowRoot.getElementById("moon-time");
-    if (moonTime) moonTime.addEventListener("change", () => this._applyMoonlight({ off_minute: timeToMin(moonTime.value) }));
-    const moonSwitch = this.shadowRoot.getElementById("moon-switch");
-    if (moonSwitch) moonSwitch.addEventListener("change", () => this._applyMoonlight({ switch: moonSwitch.value }));
-    const moonInvert = this.shadowRoot.getElementById("moon-invert");
-    if (moonInvert) moonInvert.addEventListener("change", () => this._applyMoonlight({ invert: moonInvert.value === "off" }));
+    const gearBtn = this.shadowRoot.getElementById("open-settings");
+    if (gearBtn) gearBtn.addEventListener("click", () => this._openSettings());
 
     const maint = this.shadowRoot.getElementById("maint");
     if (maint) maint.addEventListener("click", () => this._setMaintenance(!this._dev().maintenance));
@@ -620,23 +589,90 @@ class ChihirosPanel extends HTMLElement {
     const pv = this.shadowRoot.getElementById("preview");
     if (pv) pv.addEventListener("click", () => this._playOnLamp());
 
-    const followSun = this.shadowRoot.getElementById("follow-sun");
+    this._drawCurve();
+    this._bindCurveHover(dev);
+    if (this._settings) this._refreshSettings();
+  }
+
+  // Handlers for the controls inside the settings dialog. Looked up by id, so
+  // this only binds whatever the visible section actually rendered.
+  _bindSettings() {
+    const sr = this.shadowRoot;
+    const box = sr.getElementById("dialog-root");
+    box.querySelectorAll("[data-tank]").forEach((inp) =>
+      inp.addEventListener("change", () => this._setTank(inp.dataset.tank, inp.value.trim())));
+    box.querySelectorAll("[data-identify]").forEach((b) =>
+      b.addEventListener("click", () => this._identify(b.dataset.identify)));
+    const sidebarToggle = sr.getElementById("sidebar-toggle");
+    if (sidebarToggle) sidebarToggle.addEventListener("change", () => this._setSidebar(sidebarToggle.checked));
+
+    const co2apply = () => {
+      const sw = sr.getElementById("co2-switch").value || null;
+      const on = parseInt(sr.getElementById("co2-on").value, 10) || 0;
+      const off = parseInt(sr.getElementById("co2-off").value, 10) || 0;
+      this._setCo2(sw, on, off);
+    };
+    const notifyApply = () => {
+      const svc = sr.getElementById("notify-service").value || null;
+      const after = parseInt(sr.getElementById("notify-after").value, 10) || 2;
+      const reconnect = sr.getElementById("notify-reconnect").checked;
+      this._setNotify(svc, after, reconnect);
+    };
+    ["notify-service", "notify-after", "notify-reconnect"].forEach((id) => {
+      const el = sr.getElementById(id);
+      if (el) el.addEventListener("change", notifyApply);
+    });
+    const notifyTest = sr.getElementById("notify-test");
+    if (notifyTest) notifyTest.addEventListener("click", () => this._testNotify());
+    ["co2-switch", "co2-on", "co2-off"].forEach((id) => {
+      const el = sr.getElementById(id);
+      if (el) el.addEventListener("change", co2apply);
+    });
+
+    const moonEnable = sr.getElementById("moon-enable");
+    if (moonEnable) moonEnable.addEventListener("change", () => this._applyMoonlight({ enabled: moonEnable.checked }));
+    const moonMode = sr.getElementById("moon-mode");
+    if (moonMode) moonMode.addEventListener("change", () => this._applyMoonlight({ mode: moonMode.value }));
+    const moonHours = sr.getElementById("moon-hours");
+    const moonHoursVal = sr.getElementById("moon-hours-val");
+    if (moonHours) {
+      moonHours.addEventListener("input", () => { if (moonHoursVal) moonHoursVal.textContent = `${(+moonHours.value).toFixed(1)} h`; });
+      moonHours.addEventListener("change", () => this._applyMoonlight({ hours: +moonHours.value }));
+    }
+    const moonTime = sr.getElementById("moon-time");
+    if (moonTime) moonTime.addEventListener("change", () => this._applyMoonlight({ off_minute: timeToMin(moonTime.value) }));
+    const moonSwitch = sr.getElementById("moon-switch");
+    if (moonSwitch) moonSwitch.addEventListener("change", () => this._applyMoonlight({ switch: moonSwitch.value }));
+    const moonInvert = sr.getElementById("moon-invert");
+    if (moonInvert) moonInvert.addEventListener("change", () => this._applyMoonlight({ invert: moonInvert.value === "off" }));
+
+    const followSun = sr.getElementById("follow-sun");
     if (followSun) followSun.addEventListener("change", () => this._setFollowSun(followSun.checked));
 
-    const start = this.shadowRoot.getElementById("sched-start");
+    const start = sr.getElementById("sched-start");
     if (start) start.addEventListener("change", () =>
       this._setSchedule({ start_minute: timeToMin(start.value) }));
 
-    const len = this.shadowRoot.getElementById("sched-len");
-    const lenVal = this.shadowRoot.getElementById("sched-len-val");
+    const len = sr.getElementById("sched-len");
+    const lenVal = sr.getElementById("sched-len-val");
     if (len) {
       len.addEventListener("input", () => { if (lenVal) lenVal.textContent = `${(+len.value).toFixed(1)} h`; });
       len.addEventListener("change", () =>
         this._setSchedule({ day_length_minutes: Math.round(+len.value * 60) }));
     }
 
-    this._drawCurve();
-    this._bindCurveHover(dev);
+    const sidebarToggle2 = sr.getElementById("gear-toggle");
+    if (sidebarToggle2) sidebarToggle2.addEventListener("change", () => this._setGearPanel(sidebarToggle2.checked));
+    // Home Assistant's own router, not a page load (which would reload the
+    // whole frontend).
+    box.querySelectorAll("a[data-nav]").forEach((a) => a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      this._closeSettings();
+      history.pushState(null, "", a.getAttribute("href"));
+      window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+    }));
+    const rc2 = sr.getElementById("settings-reconnect");
+    if (rc2) rc2.addEventListener("click", () => this._reconnect());
   }
 
   // Scrub the timeline: hovering (or dragging on touch) shows the time and the
@@ -1087,6 +1123,227 @@ class ChihirosPanel extends HTMLElement {
     }
   }
 
+  // -- settings dialog ------------------------------------------------------
+  // Everything that is set once and then left alone lives here, so the main
+  // view stays about what the light is doing right now. Rendered inside the
+  // panel (not a full-window layer), so Home Assistant's sidebar stays usable.
+
+  _openSettings(section) {
+    this._settingsReturn = this.shadowRoot.activeElement || null;
+    this._settings = section || this._settings || "aquarium";
+    this._renderSettingsDialog();
+    this._escHandler = (ev) => { if (ev.key === "Escape") this._closeSettings(); };
+    window.addEventListener("keydown", this._escHandler);
+    const close = this.shadowRoot.getElementById("settings-close");
+    if (close) close.focus();
+  }
+
+  _closeSettings() {
+    this._settings = null;
+    if (this._escHandler) window.removeEventListener("keydown", this._escHandler);
+    this._escHandler = null;
+    const root = this.shadowRoot.getElementById("dialog-root");
+    if (root) root.innerHTML = "";
+    const back = this.shadowRoot.getElementById("open-settings");
+    if (back) back.focus();
+  }
+
+  _renderSettingsDialog() {
+    const root = this.shadowRoot.getElementById("dialog-root");
+    if (!root || !this._dev()) return;
+    const lamps = this._members().length;
+    root.innerHTML = `
+      <div class="scrim" id="scrim"><div class="scrimin" id="scrimin">
+        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+          <header>
+            <h2 id="dlg-title">${esc(t("settings_title"))}</h2>
+            <span class="dlgmeta">${esc(this._selected)} · ${esc(t(lamps === 1 ? "lamps_one" : "lamps_many", { n: lamps }))}</span>
+            <span class="grow"></span>
+            <button class="iconbtn" id="settings-close" aria-label="${esc(t("close"))}">${icon(CLOSE_PATH)}</button>
+          </header>
+          <div class="split">
+            <nav class="rail" id="rail" aria-label="${esc(t("settings_sections"))}"></nav>
+            <section class="pane" id="pane" tabindex="-1"></section>
+          </div>
+          <footer>${icon("M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z", 16)}${esc(t("settings_autosave"))}
+            <span class="grow"></span><span class="mono">v${esc(this._dev().version || "")}</span></footer>
+        </div>
+      </div></div>`;
+    const scrim = root.querySelector("#scrim");
+    // Only a press that starts on the backdrop closes: dragging a slider
+    // past the dialog edge must not.
+    scrim.addEventListener("mousedown", (ev) => {
+      if (ev.target === scrim || ev.target.id === "scrimin") this._closeSettings();
+    });
+    root.querySelector("#settings-close").addEventListener("click", () => this._closeSettings());
+    this._fillSettings();
+  }
+
+  /** Rail + visible section. Called on open, on every rail click and after data reloads. */
+  _fillSettings() {
+    const rail = this.shadowRoot.getElementById("rail");
+    const pane = this.shadowRoot.getElementById("pane");
+    if (!rail || !pane) return;
+    const dev = this._dev();
+    rail.innerHTML = SECTIONS.map(([key, path]) => {
+      const bad = this._sectionProblem(key, dev);
+      return `<button data-section="${key}" class="${key === this._settings ? "on" : ""}"
+          ${key === this._settings ? 'aria-current="page"' : ""}>
+        ${icon(path)}<span class="raillabel">${esc(t(`section_${key}`))}</span>
+        ${bad ? `<span class="railbad" title="${esc(t(bad))}" aria-label="${esc(t("problem"))}">!</span>` : ""}
+      </button>`;
+    }).join("");
+    rail.querySelectorAll("[data-section]").forEach((b) => b.addEventListener("click", () => {
+      this._settings = b.dataset.section;
+      this._fillSettings();
+      pane.scrollTop = 0;
+    }));
+    const on = rail.querySelector("button.on");
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const key = this._settings;
+    const bad = this._sectionProblem(key, dev);
+    pane.innerHTML = `
+      <div class="eyebrow">${esc(t(`section_${key}`))}</div>
+      <h3>${esc(t(`section_${key}_title`))}</h3>
+      <p class="lead">${esc(t(`section_${key}_lead`))}</p>
+      ${bad ? `<div class="problem">${icon("M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z", 18)}<span>${esc(t(bad))}</span></div>` : ""}
+      <div class="sbody">${this._sectionContent(key, dev)}</div>`;
+    this._bindSettings();
+  }
+
+  /** Re-render after a data reload, unless the user is typing in the dialog. */
+  _refreshSettings() {
+    const pane = this.shadowRoot.getElementById("pane");
+    if (!pane) { this._renderSettingsDialog(); return; }
+    const focused = this.shadowRoot.activeElement;
+    if (focused && pane.contains(focused) && focused.matches("input[type=text], input[type=number], input[type=time], input[type=range]")) return;
+    const scroll = pane.scrollTop;
+    const focusId = focused && pane.contains(focused) ? focused.id : null;
+    this._fillSettings();
+    pane.scrollTop = scroll;
+    if (focusId) { const el = this.shadowRoot.getElementById(focusId); if (el) el.focus(); }
+  }
+
+  /** Translation key of the first problem in a section, or null. */
+  _sectionProblem(key, dev) {
+    if (!dev) return null;
+    if (key === "notify") {
+      const n = dev.notify || {};
+      if (n.service && this._notifyServices && this._notifyServices.length
+          && !this._notifyServices.some((x) => x.service === n.service)) return "problem_notify_missing";
+    }
+    if (key === "moonlight" && dev.moonlight && dev.moonlight_available
+        && ["switch", "until_switch"].includes(dev.moonlight_mode) && !dev.moonlight_switch) {
+      return "problem_moon_switch";
+    }
+    if (key === "co2") {
+      const c = dev.co2 || {};
+      if (c.switch && this._switches && this._switches.length
+          && !this._switches.some((x) => x.entity_id === c.switch)) return "problem_co2_missing";
+    }
+    return null;
+  }
+
+  _sectionContent(key, dev) {
+    switch (key) {
+      case "aquarium": return this._tankContent();
+      case "schedule": return this._scheduleContent(dev);
+      case "moonlight": return this._moonlightContent(dev);
+      case "co2": return this._co2Content(dev);
+      case "notify": return this._notifyContent(dev);
+      case "connection": return this._connectionContent();
+      case "display": return this._displayContent(dev);
+      case "about": return this._aboutContent(dev);
+      default: return "";
+    }
+  }
+
+  _fmtDur(sec) {
+    if (sec == null || !Number.isFinite(sec)) return "";
+    const s = Math.max(0, Math.round(sec));
+    if (s < 60) return t("dur_s", { n: s });
+    const m = Math.round(s / 60);
+    if (m < 60) return t("dur_m", { n: m });
+    return t("dur_hm", { h: Math.floor(m / 60), m: m % 60 });
+  }
+
+  _fmtWhen(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return esc(iso);
+    const locale = (this._hass && this._hass.locale && this._hass.locale.language) || this._hass.language || "en";
+    try {
+      return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(d);
+    } catch (e) { return d.toLocaleString(); }
+  }
+
+  _connectionContent() {
+    const rows = this._members().map((d) => {
+      const via = d.connection_source_name || d.connection_source || "—";
+      const log = Array.isArray(d.connection_log) ? d.connection_log : [];
+      const weekAgo = Date.now() - 7 * 864e5;
+      const drops = log.filter((e) => (e.kind === "disconnected" || e.kind === "found_disconnected")
+        && new Date(e.at).getTime() >= weekAgo).length;
+      const table = log.length ? `
+        <div class="tablewrap"><table class="log">
+          <thead><tr><th>${esc(t("log_when"))}</th><th>${esc(t("log_what"))}</th><th>${esc(t("log_duration"))}</th></tr></thead>
+          <tbody>${log.map((e) => {
+            const back = e.kind === "reconnected" || e.kind === "reconnect_failed";
+            const dur = e.seconds == null ? "—" : t(back ? "log_back_after" : "log_idle_before", { d: this._fmtDur(e.seconds) });
+            return `<tr class="k-${esc(e.kind)}"><td>${this._fmtWhen(e.at)}</td>
+              <td><span class="kind"><i></i>${esc(t(`log_${e.kind}`))}</span>${e.detail ? `<small class="muted">${esc(e.detail)}</small>` : ""}</td>
+              <td>${esc(dur)}</td></tr>`;
+          }).join("")}</tbody></table></div>`
+        : `<p class="muted small">${esc(t("log_empty"))}</p>`;
+      return `
+        ${this._members().length > 1 ? `<div class="subhead">${esc(d.name)}</div>` : ""}
+        <div class="srow"><span class="stitle">${esc(t("conn_status"))}</span>
+          <span class="pill s-${esc(d.connection)}"><i></i>${esc(t(`conn_${d.connection}`))}</span></div>
+        <div class="srow"><span class="stitle">${esc(t("conn_via"))}</span>
+          <span class="sval">${esc(via)}${d.rssi != null ? ` · <span class="mono">${d.rssi} dBm</span>` : ""}</span></div>
+        <div class="srow"><span class="stitle">${esc(t("conn_log"))}</span>
+          <span class="sval muted">${esc(t(drops === 1 ? "conn_drops_one" : "conn_drops_many", { n: drops }))}</span></div>
+        ${table}`;
+    }).join("");
+    return `${rows}
+      <div class="srow"><span class="stitle">${esc(t("conn_reconnect"))}</span>
+        <button class="pbtn" id="settings-reconnect">${esc(t("conn_reconnect_now"))}</button></div>
+      <p class="muted small">${esc(t("conn_note"))}</p>`;
+  }
+
+  _displayContent(dev) {
+    return `
+      <label class="srow">
+        <span class="stitle">${esc(t("display_sidebar"))}<small>${esc(t("display_sidebar_help"))}</small></span>
+        <input type="checkbox" class="tgl" id="sidebar-toggle" ${dev.sidebar === false ? "" : "checked"}>
+      </label>
+      <label class="srow">
+        <span class="stitle">${esc(t("display_gear"))}<small>${esc(t("display_gear_help"))}</small></span>
+        <input type="checkbox" class="tgl" id="gear-toggle" ${dev.gear_panel === false ? "" : "checked"}>
+      </label>
+      <div class="srow"><span class="stitle">${esc(t("display_language"))}</span>
+        <span class="sval muted">${esc(t("display_language_value"))}</span></div>`;
+  }
+
+  _aboutContent(dev) {
+    return `
+      <div class="srow"><span class="stitle">${esc(t("about_version"))}</span><span class="sval mono">${esc(dev.version || "")}</span></div>
+      <div class="srow"><span class="stitle">${esc(t("about_diagnostics"))}<small>${esc(t("about_diagnostics_help"))}</small></span>
+        <a class="pbtn" href="/config/integrations/integration/chihiros_plus" data-nav>${esc(t("about_open_integration"))}</a></div>
+      <div class="srow"><span class="stitle">${esc(t("about_issues"))}</span>
+        <a class="pbtn" href="https://github.com/joohann/chihiros_plus/issues" target="_blank" rel="noopener">GitHub</a></div>
+      <p class="muted small">${esc(t("about_note"))}</p>
+      <majikan-donate accent="--chihiros-accent" contact="${CONTACT_URL}" version="${esc(dev.version || "")}"></majikan-donate>`;
+  }
+
+  async _setGearPanel(enabled) {
+    this._lastInteraction = Date.now();
+    this._toast(t(enabled ? "toast_gear_on" : "toast_gear_off"), "ok");
+    try {
+      await this._ws({ type: "chihiros_plus/set_gear_panel", entry_id: this._dev().entry_id, enabled });
+    } catch (err) { this._toast(t("toast_save_failed"), "error"); }
+    await this._load();
+  }
+
   _switcher() {
     return `<div class="switch">${Object.keys(this._tanks).map((t) =>
       `<button data-sel="${esc(t)}" class="${t === this._selected ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
@@ -1100,200 +1357,150 @@ class ChihirosPanel extends HTMLElement {
       <span class="meta mono">${d.rssi != null ? d.rssi + " dBm" : "—"}</span></div>`;
   }
 
-  _scheduleValue(dev) {
-    const h = (dev.day_length_minutes / 60).toFixed(1);
-    const span = `${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}`;
-    return dev.follow_sun ? `Follow sunset · ${h} h · ${span}` : `Manual · ${h} h · ${span}`;
-  }
-
   _scheduleContent(dev) {
+    const span = { start: minToTime(dev.start_minute), end: minToTime(dev.start_minute + dev.day_length_minutes) };
     return `
       <label class="sunrow">
         <input type="checkbox" id="follow-sun" ${dev.follow_sun ? "checked" : ""}>
-        <span>🌇 Follow real sunset</span>
+        <span>${esc(t("sched_follow_sun"))}</span>
       </label>
       <div class="fields">
         <label class="field ${dev.follow_sun ? "dim" : ""}">
-          <span>Start time ${dev.follow_sun ? "· auto" : ""}</span>
+          <span>${esc(t("sched_start"))}${dev.follow_sun ? ` · ${esc(t("sched_auto"))}` : ""}</span>
           <input type="time" id="sched-start" value="${minToTime(dev.start_minute)}" ${dev.follow_sun ? "disabled" : ""}>
         </label>
         <label class="field">
-          <span>Day length <b id="sched-len-val">${(dev.day_length_minutes / 60).toFixed(1)} h</b></span>
+          <span>${esc(t("sched_length"))} <b id="sched-len-val">${(dev.day_length_minutes / 60).toFixed(1)} h</b></span>
           <input type="range" id="sched-len" min="1" max="24" step="0.5"
                  value="${(dev.day_length_minutes / 60).toFixed(1)}">
         </label>
       </div>
-      ${dev.follow_sun
-        ? `<div class="sunnote">Sunset anchored to the sun (${minToTime(dev.start_minute + dev.day_length_minutes)}). Lights start ${minToTime(dev.start_minute)} — change the length to shift the start.</div>`
-        : `<div class="sunnote">Manual: ${minToTime(dev.start_minute)}–${minToTime(dev.start_minute + dev.day_length_minutes)}.</div>`}`;
-  }
-
-  _moonlightValue(dev) {
-    if (!dev.moonlight_available) return "Not available for this program";
-    if (!dev.moonlight) return "Off";
-    const cfg = this._moonlightConfig(dev);
-    if (cfg.mode === "duration") return `${cfg.hours} h after lights-off`;
-    if (cfg.mode === "time") return `Until ${minToTime(cfg.off_minute)}`;
-    if (cfg.mode === "until_switch") {
-      const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
-      return cfg.switch ? `Until ${s ? s.name : cfg.switch} turns on` : "Until a switch turns on (pick one)";
-    }
-    if (cfg.mode === "switch") {
-      const s = (this._switches || []).find((x) => x.entity_id === cfg.switch);
-      const state = cfg.invert ? "off" : "on";
-      return cfg.switch ? `While ${s ? s.name : cfg.switch} is ${state}` : "Follow a switch (pick one)";
-    }
-    return "All night";
+      <div class="sunnote">${esc(t(dev.follow_sun ? "sched_note_sun" : "sched_note_manual", span))}</div>`;
   }
 
   _moonlightContent(dev) {
     const cfg = this._moonlightConfig(dev);
     if (!dev.moonlight_available) {
-      return `<p class="muted" style="font-size:12.5px;margin:0">Moonlight isn't available for
-        Blackout or the standalone Moonlight program.</p>`;
+      return `<p class="muted small">${esc(t("moon_unavailable"))}</p>`;
     }
-    const opts = ['<option value="">— pick a switch —</option>'].concat(
+    const opts = [`<option value="">${esc(t("moon_pick_switch"))}</option>`].concat(
       (this._switches || []).map((s) =>
         `<option value="${esc(s.entity_id)}" ${s.entity_id === cfg.switch ? "selected" : ""}>${esc(s.name)}</option>`)
     ).join("");
+    const mode = (m) => `<option value="${m}" ${cfg.mode === m ? "selected" : ""}>${esc(t(`moon_mode_${m}`))}</option>`;
     return `
       <label class="sunrow">
         <input type="checkbox" id="moon-enable" ${cfg.enabled ? "checked" : ""}>
-        <span>🌙 Moonlight at night</span>
+        <span>${esc(t("moon_enable"))}</span>
       </label>
       ${cfg.enabled ? `
-        <label class="field" style="min-width:100%"><span>Turn moonlight off…</span>
-          <select id="moon-mode">
-            <option value="all_night" ${cfg.mode === "all_night" ? "selected" : ""}>At next lights-on (all night)</option>
-            <option value="duration" ${cfg.mode === "duration" ? "selected" : ""}>After a set duration</option>
-            <option value="time" ${cfg.mode === "time" ? "selected" : ""}>At a set time</option>
-            <option value="switch" ${cfg.mode === "switch" ? "selected" : ""}>Based on a helper/switch</option>
-            <option value="until_switch" ${cfg.mode === "until_switch" ? "selected" : ""}>When a helper/switch turns on</option>
-          </select></label>
+        <label class="field" style="min-width:100%"><span>${esc(t("moon_off_when"))}</span>
+          <select id="moon-mode">${["all_night", "duration", "time", "switch", "until_switch"].map(mode).join("")}</select></label>
         ${cfg.mode === "duration" ? `
-          <label class="field"><span>Duration <b id="moon-hours-val">${cfg.hours.toFixed(1)} h</b></span>
+          <label class="field"><span>${esc(t("moon_duration"))} <b id="moon-hours-val">${cfg.hours.toFixed(1)} h</b></span>
             <input type="range" id="moon-hours" min="0.5" max="12" step="0.5" value="${cfg.hours}"></label>` : ""}
         ${cfg.mode === "time" ? `
-          <label class="field"><span>Off at</span>
+          <label class="field"><span>${esc(t("moon_off_at"))}</span>
             <input type="time" id="moon-time" value="${minToTime(cfg.off_minute)}"></label>` : ""}
         ${cfg.mode === "switch" ? `
-          <label class="field" style="min-width:100%"><span>Helper / switch</span>
+          <label class="field" style="min-width:100%"><span>${esc(t("moon_helper"))}</span>
             <select id="moon-switch">${opts}</select></label>
-          <label class="field" style="min-width:100%"><span>Moonlight while this helper is…</span>
+          <label class="field" style="min-width:100%"><span>${esc(t("moon_while"))}</span>
             <select id="moon-invert">
-              <option value="on" ${cfg.invert ? "" : "selected"}>On</option>
-              <option value="off" ${cfg.invert ? "selected" : ""}>Off</option>
+              <option value="on" ${cfg.invert ? "" : "selected"}>${esc(t("state_on"))}</option>
+              <option value="off" ${cfg.invert ? "selected" : ""}>${esc(t("state_off"))}</option>
             </select></label>
-          <p class="muted" style="font-size:12px;margin:6px 0 0">e.g. your <b>Night mode</b> boolean — moonlight glows only while it's in the chosen state (checked every ~30 s).</p>` : ""}
+          <p class="muted small">${esc(t("moon_switch_help"))}</p>` : ""}
         ${cfg.mode === "until_switch" ? `
-          <label class="field" style="min-width:100%"><span>Helper / switch</span>
+          <label class="field" style="min-width:100%"><span>${esc(t("moon_helper"))}</span>
             <select id="moon-switch">${opts}</select></label>
-          <p class="muted" style="font-size:12px;margin:6px 0 0">Moonlight glows from lights-off until this helper turns <b>on</b> (e.g. your <b>Night mode</b>), then stays off until the next lights-on — even if the helper turns off again in the morning.</p>` : ""}
+          <p class="muted small">${esc(t("moon_until_help"))}</p>` : ""}
       ` : ""}`;
-  }
-
-  _co2Value(dev) {
-    const c = dev.co2 || { enabled: false };
-    if (!c.enabled) return "Not set — tap to link a switch";
-    return c.on_at ? `On ${c.on_at}–${c.off_at} · currently ${c.on ? "on" : "off"}` : "No photoperiod in this program";
   }
 
   _co2Content(dev) {
     const c = dev.co2 || { enabled: false, before_on: 60, before_off: 60 };
-    const options = ['<option value="">— none (off) —</option>'].concat(
+    const options = [`<option value="">${esc(t("co2_none"))}</option>`].concat(
       (this._switches || []).map((s) =>
         `<option value="${esc(s.entity_id)}" ${s.entity_id === c.switch ? "selected" : ""}>${esc(s.name)}</option>`)
     ).join("");
     return `
-      <label class="field" style="min-width:100%"><span>CO₂ switch</span>
+      <label class="field" style="min-width:100%"><span>${esc(t("co2_switch"))}</span>
         <select id="co2-switch">${options}</select></label>
       <div class="co2row">
-        <label class="field"><span>On before lights</span>
+        <label class="field"><span>${esc(t("co2_before_on"))}</span>
           <input type="number" id="co2-on" min="0" max="360" value="${c.before_on}"></label>
-        <label class="field"><span>Off before lights out</span>
+        <label class="field"><span>${esc(t("co2_before_off"))}</span>
           <input type="number" id="co2-off" min="0" max="360" value="${c.before_off}"></label>
       </div>
       ${c.enabled ? `<div class="co2status">
         <span class="led" style="background:${c.on ? "var(--success-color,#16a34a)" : "var(--secondary-text-color)"}"></span>
-        <span>${c.on_at ? `CO₂ runs <b class="mono">${c.on_at}–${c.off_at}</b> · currently <b>${c.on ? "ON" : "OFF"}</b>` : "No photoperiod in the current program"}</span>
+        <span>${esc(c.on_at ? t(c.on ? "co2_status_on" : "co2_status_off", { from: c.on_at, to: c.off_at }) : t("co2_no_period"))}</span>
       </div>` : ""}
-      <p class="muted" style="font-size:12px;margin:10px 0 0;line-height:1.5">Follows the active program's photoperiod automatically; off during Blackout, Moonlight, and when the lamps are off / Emergency off.</p>`;
-  }
-
-  _tankValue() {
-    const tanks = this._tanks ? Object.keys(this._tanks).length : 0;
-    const lamps = this._devices.length;
-    return `${tanks} tank${tanks === 1 ? "" : "s"} · ${lamps} lamp${lamps === 1 ? "" : "s"}`;
+      <p class="muted small">${esc(t("co2_help"))}</p>`;
   }
 
   _tankContent() {
     return `
-      <p class="muted" style="margin:0 0 10px;font-size:12px">Give lamps the same tank name to control them together.</p>
+      <p class="muted small">${esc(t("tank_help"))}</p>
       ${this._devices.map((d) => `
         <div class="tankrow">
           <span class="tankname">${esc(d.name)}${d.model ? ` <small class="model">· ${esc(d.model)}</small>` : ""}</span>
-          <button class="idbtn" data-identify="${d.entry_id}" title="Blink this lamp">💡</button>
-          <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}" placeholder="Tank name">
+          <button class="idbtn" data-identify="${d.entry_id}" title="${esc(t("identify_title"))}">${esc(t("identify"))}</button>
+          <input type="text" class="tankinput" data-tank="${d.entry_id}" value="${esc(d.tank)}"
+                 placeholder="${esc(t("tank_placeholder"))}" aria-label="${esc(t("tank_name_for", { name: d.name }))}">
         </div>`).join("")}`;
-  }
-
-  _notifyValue(dev) {
-    const n = dev.notify || {};
-    if (!n.service) return "Home Assistant bell only — tap to add your phone";
-    const s = (this._notifyServices || []).find((x) => x.service === n.service);
-    return `${s ? s.name : n.service} · after ${n.after || 2} min offline`;
   }
 
   _notifyContent(dev) {
     const n = dev.notify || { service: null, after: 2, reconnect: true };
     const services = this._notifyServices || [];
-    const options = ['<option value="">— none (Home Assistant bell only) —</option>'].concat(
-      services.map((s) =>
+    const known = services.some((s) => s.service === n.service);
+    const options = [`<option value="">${esc(t("notify_none"))}</option>`]
+      .concat(n.service && !known ? [`<option value="${esc(n.service)}" selected>${esc(n.service)}</option>`] : [])
+      .concat(services.map((s) =>
         `<option value="${esc(s.service)}" ${s.service === n.service ? "selected" : ""}>${esc(s.name)}</option>`)
     ).join("");
     const after = [2, 10, 30].map((m) =>
-      `<option value="${m}" ${m === (n.after || 2) ? "selected" : ""}>${m} minutes</option>`).join("");
+      `<option value="${m}" ${m === (n.after || 2) ? "selected" : ""}>${esc(t("minutes", { n: m }))}</option>`).join("");
     return `
-      <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.5">Get a push message when the lamp can't be reached over Bluetooth.
-        The connection is also checked twice an hour, even when the light isn't changing.</p>
-      <label class="field" style="min-width:100%"><span>Send to</span>
+      <label class="field" style="min-width:100%"><span>${esc(t("notify_to"))}</span>
         <select id="notify-service">${options}</select></label>
-      ${services.length ? "" : `<p class="muted" style="font-size:12px;margin:6px 0 0">No notify services found — install the Home Assistant Companion app on your phone first.</p>`}
+      ${services.length ? "" : `<p class="muted small">${esc(t("notify_no_services"))}</p>`}
       <div class="co2row">
-        <label class="field"><span>First message after</span>
+        <label class="field"><span>${esc(t("notify_after"))}</span>
           <select id="notify-after" ${n.service ? "" : "disabled"}>${after}</select></label>
       </div>
-      <label class="sunrow" style="margin-top:12px">
+      <label class="sunrow">
         <input type="checkbox" id="notify-reconnect" ${n.reconnect !== false ? "checked" : ""} ${n.service ? "" : "disabled"}>
-        <span>Also tell me when it's back online</span>
+        <span>${esc(t("notify_reconnect"))}</span>
       </label>
-      ${n.service ? `<button class="btn small" id="notify-test" style="margin-top:12px">Send test message</button>` : ""}
-      <p class="muted" style="font-size:12px;margin:10px 0 0;line-height:1.5">Reminders follow at 10 and 30 minutes while it stays offline.
-        A notice in Home Assistant is always shown as well.</p>`;
+      ${n.service ? `<div><button class="pbtn" id="notify-test">${esc(t("notify_test"))}</button></div>` : ""}
+      <p class="muted small">${esc(t("notify_help"))}</p>`;
   }
 
   async _setNotify(service, after, reconnect) {
     this._lastInteraction = Date.now();
-    this._toast(service ? "Notifications on ✓" : "Push notifications off", "ok");
+    this._toast(t(service ? "toast_notify_on" : "toast_notify_off"), "ok");
     try {
       await this._fanout((id) => ({ type: "chihiros_plus/set_notify", entry_id: id, service, after, reconnect }));
-    } catch (err) { this._toast("Could not save notification setting", "error"); }
+    } catch (err) { this._toast(t("toast_save_failed"), "error"); }
     await this._load();
   }
 
   async _testNotify() {
     try {
       const r = await this._ws({ type: "chihiros_plus/test_notify", entry_id: this._dev().entry_id });
-      this._toast(r.sent ? "Test message sent" : "Notify service not available", r.sent ? "ok" : "error");
-    } catch (err) { this._toast("Could not send test message", "error"); }
+      this._toast(t(r.sent ? "toast_test_sent" : "toast_test_unavailable"), r.sent ? "ok" : "error");
+    } catch (err) { this._toast(t("toast_test_failed"), "error"); }
   }
 
   async _setCo2(sw, on, off) {
     this._lastInteraction = Date.now();
-    this._toast(sw ? "CO₂ linked ✓" : "CO₂ off", "ok");
+    this._toast(t(sw ? "toast_co2_on" : "toast_co2_off"), "ok");
     try {
       await this._fanout((id) => ({ type: "chihiros_plus/set_co2", entry_id: id, switch: sw, before_on: on, before_off: off }));
-    } catch (err) { this._toast("Could not save CO₂ setting", "error"); }
+    } catch (err) { this._toast(t("toast_save_failed"), "error"); }
     await this._load();
   }
 
@@ -1359,7 +1566,37 @@ function esc(s) {
 }
 
 const STYLES = `
-  :host { --chihiros-accent:#0a9d94; display:block; }
+  :host { --chihiros-accent:#0a9d94; display:block; position:relative; min-height:100vh;
+    /* Glass tokens for the settings dialog and gear. Light by default,
+       dark when Home Assistant's theme is dark (the [dark] attribute). */
+    --cp-glass: rgba(255,255,255,.68);
+    --cp-glass-border: rgba(255,255,255,.75);
+    --cp-sheen: inset 0 1px 0 rgba(255,255,255,.9);
+    --cp-surface: rgba(255,255,255,.82);
+    --cp-surface-2: rgba(16,18,22,.05);
+    --cp-line: rgba(16,18,22,.10);
+    --cp-shadow: 0 24px 64px rgba(16,18,22,.22);
+    --cp-shadow-1: 0 1px 2px rgba(16,18,22,.08);
+    --cp-scrim: rgba(12,16,20,.32);
+    --cp-solid: #f6f8f9;
+    /* Ambience painted on the host itself, not a fixed full-window layer:
+       that would escape the panel and render blank in Safari / Companion. */
+    background:
+      radial-gradient(900px 420px at 85% -10%, color-mix(in srgb, var(--chihiros-accent) 14%, transparent), transparent 60%),
+      radial-gradient(700px 380px at -10% 110%, rgba(63,127,224,.08), transparent 60%);
+  }
+  :host([dark]) {
+    --cp-glass: rgba(26,31,34,.74);
+    --cp-glass-border: rgba(255,255,255,.14);
+    --cp-sheen: inset 0 1px 0 rgba(255,255,255,.12);
+    --cp-surface: rgba(255,255,255,.06);
+    --cp-surface-2: rgba(255,255,255,.07);
+    --cp-line: rgba(255,255,255,.11);
+    --cp-shadow: 0 24px 64px rgba(0,0,0,.6);
+    --cp-shadow-1: 0 1px 2px rgba(0,0,0,.4);
+    --cp-scrim: rgba(0,0,0,.45);
+    --cp-solid: #1a1f22;
+  }
   :host *, :host *::before, :host *::after { box-sizing:border-box; }
   #topbar:not(:empty) { position:sticky; top:0; z-index:5; display:flex; align-items:center;
     gap:6px; height:52px; padding:0 6px;
@@ -1638,6 +1875,111 @@ const STYLES = `
   .wdone { width:64px; height:64px; border-radius:50%; display:grid; place-items:center;
     margin:4px auto 18px; background:color-mix(in srgb, var(--success-color,#16a34a) 15%, transparent);
     color:var(--success-color,#16a34a); font-size:32px; }
+  /* Header: tank switcher + glass gear button */
+  .headr { display:flex; align-items:center; gap:10px; flex:none; }
+  .gear { width:44px; height:44px; flex:none; border-radius:50%; cursor:pointer; display:grid; place-items:center;
+    color:var(--primary-text-color); background:var(--cp-glass); border:1px solid var(--cp-glass-border);
+    -webkit-backdrop-filter:blur(14px) saturate(160%); backdrop-filter:blur(14px) saturate(160%);
+    box-shadow:var(--cp-sheen), var(--cp-shadow-1); transition:color .15s, transform .15s; }
+  .gear:hover { color:var(--chihiros-accent); }
+  .gear:active { transform:scale(.96); }
+  .gear:focus-visible, .iconbtn:focus-visible, .rail button:focus-visible, .pbtn:focus-visible {
+    outline:2px solid var(--chihiros-accent); outline-offset:2px; }
+
+  /* Settings dialog: glass, inside the panel only. */
+  .scrim { position:absolute; inset:0; z-index:8; background:var(--cp-scrim); }
+  .scrimin { position:sticky; top:0; height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .dlg { width:min(780px,100%); height:min(640px,100%); display:flex; flex-direction:column; overflow:hidden;
+    color:var(--primary-text-color); background:var(--cp-glass); border:1px solid var(--cp-glass-border);
+    border-radius:22px; -webkit-backdrop-filter:blur(28px) saturate(180%); backdrop-filter:blur(28px) saturate(180%);
+    box-shadow:var(--cp-sheen), var(--cp-shadow); }
+  @media (prefers-reduced-transparency:reduce) {
+    .dlg, .gear { background:var(--cp-solid); -webkit-backdrop-filter:none; backdrop-filter:none; } }
+  .dlg > header { display:flex; align-items:center; gap:10px; padding:14px 18px 14px 20px; border-bottom:1px solid var(--cp-line); }
+  .dlg > header h2 { margin:0; font-size:18px; font-weight:700; }
+  .dlgmeta { color:var(--secondary-text-color); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .grow { flex:1; }
+  .iconbtn { width:40px; height:40px; flex:none; border-radius:50%; border:0; background:transparent; cursor:pointer;
+    color:var(--secondary-text-color); display:grid; place-items:center; }
+  .iconbtn:hover { background:var(--cp-surface-2); color:var(--primary-text-color); }
+  .split { flex:1; min-height:0; display:grid; grid-template-columns:200px minmax(0,1fr); }
+  .rail { border-right:1px solid var(--cp-line); padding:10px 8px; overflow-y:auto; }
+  .rail button { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:8px 10px; margin-bottom:2px;
+    border:1px solid transparent; border-radius:11px; background:none; color:var(--primary-text-color);
+    font:inherit; font-size:14px; text-align:left; cursor:pointer; }
+  .rail button svg { color:var(--secondary-text-color); flex:none; }
+  .rail button:hover { background:var(--cp-surface-2); }
+  .rail button.on { font-weight:700; background:var(--cp-surface); border-color:var(--cp-glass-border);
+    box-shadow:var(--cp-sheen), inset 3px 0 0 var(--chihiros-accent); }
+  .rail button.on svg { color:var(--chihiros-accent); }
+  .raillabel { flex:1; }
+  .railbad { flex:none; width:18px; height:18px; border-radius:50%; display:grid; place-items:center;
+    background:var(--error-color,#d8434f); color:#fff; font-size:12px; font-weight:800; }
+  .pane { padding:18px 22px 22px; overflow-y:auto; min-width:0; }
+  .pane:focus { outline:none; }
+  .pane h3 { margin:2px 0 2px; font-size:21px; font-weight:700; letter-spacing:-.01em; }
+  .lead { margin:0 0 14px; color:var(--secondary-text-color); font-size:13.5px; }
+  .sbody { display:flex; flex-direction:column; gap:14px; }
+  /* Rows already carry their own padding and hairline; no extra gap between them. */
+  .sbody > .srow + .srow, .sbody > .srow + .tablewrap, .sbody > .tablewrap + .srow { margin-top:-14px; }
+  .problem { display:flex; align-items:center; gap:8px; margin:0 0 14px; padding:10px 12px; border-radius:12px;
+    border:1px solid var(--error-color,#d8434f); color:var(--error-color,#d8434f); font-size:13px; font-weight:600; }
+  .problem svg { flex:none; }
+  .srow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:48px;
+    padding:8px 0; border-top:1px solid var(--cp-line); }
+  label.srow { cursor:pointer; }
+  .sbody > .srow:first-child { border-top:0; }
+  .stitle { display:flex; flex-direction:column; gap:2px; font-size:14px; font-weight:600; min-width:0; }
+  .stitle small { font-size:12px; font-weight:400; color:var(--secondary-text-color); }
+  .sval { text-align:right; font-size:13.5px; }
+  .subhead { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--secondary-text-color); margin-top:6px; }
+  .small { font-size:12px; line-height:1.5; margin:0; }
+  .pbtn { flex:none; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--cp-line);
+    background:var(--cp-surface); color:var(--primary-text-color); font:inherit; font-size:13px; font-weight:600;
+    padding:7px 14px; border-radius:999px; cursor:pointer; text-decoration:none; white-space:nowrap; }
+  .pbtn:hover { border-color:var(--chihiros-accent); color:var(--chihiros-accent); }
+  /* Switch-style checkbox; still a native checkbox for keyboard + screen readers. */
+  .tgl { appearance:none; -webkit-appearance:none; flex:none; width:40px; height:24px; margin:0; border-radius:999px;
+    background:var(--disabled-text-color,#9aa1a6); position:relative; cursor:pointer; transition:background .15s; }
+  .tgl::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.3); transition:left .15s; }
+  .tgl:checked { background:var(--chihiros-accent); }
+  .tgl:checked::after { left:19px; }
+  .tgl:focus-visible { outline:2px solid var(--chihiros-accent); outline-offset:2px; }
+  /* Status pill: a dot plus the word, so it never relies on colour alone. */
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:13px; font-weight:600;
+    background:var(--cp-surface-2); }
+  .pill i { width:8px; height:8px; border-radius:50%; background:currentColor; }
+  .pill.s-connected { color:var(--success-color,#0f9d7a); background:color-mix(in srgb, var(--success-color,#0f9d7a) 14%, transparent); }
+  .pill.s-reconnecting, .pill.s-degraded { color:var(--warning-color,#d9971f); background:color-mix(in srgb, var(--warning-color,#d9971f) 14%, transparent); }
+  .pill.s-offline, .pill.s-error { color:var(--error-color,#d8434f); background:color-mix(in srgb, var(--error-color,#d8434f) 14%, transparent); }
+  .tablewrap { overflow-x:auto; }
+  table.log { width:100%; border-collapse:collapse; font-size:13px; }
+  table.log th, table.log td { text-align:left; padding:8px 6px; border-top:1px solid var(--cp-line); vertical-align:top; }
+  table.log th { color:var(--secondary-text-color); font-weight:600; font-size:12px; }
+  table.log td small { display:block; margin-top:2px; }
+  .kind { display:inline-flex; align-items:center; gap:7px; font-weight:600; }
+  .kind i { width:8px; height:8px; border-radius:50%; flex:none; background:var(--secondary-text-color); }
+  .k-reconnected .kind i { background:var(--success-color,#0f9d7a); }
+  .k-disconnected .kind i, .k-found_disconnected .kind i { background:var(--warning-color,#d9971f); }
+  .k-reconnect_failed .kind i { background:var(--error-color,#d8434f); }
+  .dlg > footer { display:flex; align-items:center; gap:8px; padding:11px 20px; border-top:1px solid var(--cp-line);
+    color:var(--secondary-text-color); font-size:12.5px; }
+  .dlg .field input[type=number] { font:inherit; font-size:15px; padding:8px 10px; border:1px solid var(--divider-color);
+    border-radius:9px; background:var(--secondary-background-color); color:var(--primary-text-color); }
+  .dlg select, .dlg .tankinput { background:var(--cp-surface); }
+  @media (max-width: 640px) {
+    .scrimin { padding:0; }
+    .dlg { width:100%; height:100%; border-radius:0; }
+    .split { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }
+    .rail { display:flex; gap:6px; overflow-x:auto; border-right:0; border-bottom:1px solid var(--cp-line); padding:8px; }
+    .rail button { width:auto; white-space:nowrap; margin:0; min-height:40px; }
+    .rail button.on { box-shadow:var(--cp-sheen), inset 0 -3px 0 var(--chihiros-accent); }
+    .pane { padding:14px 16px 18px; }
+    .tankrow { flex-wrap:wrap; }
+  }
+
   .toast { position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px);
     background:var(--primary-text-color); color:var(--card-background-color);
     padding:10px 18px; border-radius:10px; font-size:13.5px; font-weight:600;
@@ -1649,4 +1991,6 @@ const STYLES = `
   .toast.error { background:var(--error-color,#d8434f); color:#fff; }
 `;
 
-customElements.define("chihiros-panel", ChihirosPanel);
+// Guarded: after an update Home Assistant loads the new version URL into a tab
+// that already defined the element.
+if (!customElements.get("chihiros-panel")) customElements.define("chihiros-panel", ChihirosPanel);

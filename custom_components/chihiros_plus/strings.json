@@ -169,6 +169,16 @@
     "sync_time": {
       "name": "Sync time",
       "description": "Push Home Assistant's local time to the lamp's internal clock."
+    },
+    "set_panel_enabled": {
+      "name": "Set panel enabled",
+      "description": "Choose whether the gear button on the integration page opens the Chihiros Plus panel. Turn it off if the panel fails to load: the gear then opens the options dialog again.",
+      "fields": {
+        "enabled": {
+          "name": "Enabled",
+          "description": "Open the panel from the gear button."
+        }
+      }
     }
   },
   "options": {
@@ -176,9 +186,10 @@
       "init": {
         "title": "Chihiros Plus options",
         "data": {
-          "sidebar": "Show the Chihiros Plus panel in the sidebar"
+          "sidebar": "Show the Chihiros Plus panel in the sidebar",
+          "gear_panel": "Open the Chihiros Plus panel from the gear button"
         },
-        "description": "Turn this off to hide the custom panel from Home Assistant's sidebar. You can re-enable it here at any time."
+        "description": "Where the panel shows up. With the gear option on, the gear button on this page opens the panel, and every setting lives there. Switch it off from the panel's Display settings, or with the chihiros_plus.set_panel_enabled service."
       }
     }
   }

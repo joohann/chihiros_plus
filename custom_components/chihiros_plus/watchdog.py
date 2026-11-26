@@ -163,6 +163,18 @@ class Watchdog:
         if self.status.state is not ConnectionState.RECONNECTING:
             self.status.state = ConnectionState.DEGRADED
 
+    def mark_link_lost(self) -> None:
+        """The link dropped on its own (lamp, adapter or proxy closed it).
+
+        Without this an idle link could be gone for up to the health-check
+        interval while the state still said CONNECTED, because nothing is sent
+        while the output is unchanged. The outage now starts at the real drop,
+        so ``seconds_unreachable`` and the notifications are timed from there.
+        """
+        if self.status.outage_since is None:
+            self.status.outage_since = self._clock()
+        self.status.state = ConnectionState.RECONNECTING
+
     def _finalize_failure(self, err: Exception | None) -> None:
         # Distinguish "can't reach the lamp at all" from "reached but rejected".
         if isinstance(err, TransportError) and not self.transport.is_connected:
@@ -176,6 +188,21 @@ class Watchdog:
         if self.status.last_success is None:
             return None
         return (now if now is not None else self._clock()) - self.status.last_success
+
+    def seconds_unreachable(self, now: float | None = None) -> float:
+        """How long the current outage has lasted; 0 while connected.
+
+        Timed from the first failure or the moment the link dropped, not from
+        the last successful write: with an idle (deduped) link that write can
+        be long ago, which made every short reconnect look like a 30 minute
+        outage.
+        """
+        if self.status.state is ConnectionState.CONNECTED:
+            return 0.0
+        start = self.status.outage_since
+        if start is None:
+            return 0.0
+        return max(0.0, (now if now is not None else self._clock()) - start)
 
     def poll_notification(self, now: float | None = None) -> NotificationEvent | None:
         """Return a due notification event, or None. Fires each threshold once.

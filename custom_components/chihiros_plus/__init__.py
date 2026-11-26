@@ -37,6 +37,49 @@ def sidebar_wanted(hass) -> bool:
     return any(e.options.get("sidebar", True) for e in entries)
 
 
+def gear_wanted(hass) -> bool:
+    """The gear opens the panel unless every entry has that switched off."""
+    from .const import DOMAIN
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return True
+    return any(e.options.get("gear_panel", True) for e in entries)
+
+
+def _register_services(hass) -> None:
+    """Domain services, registered once.
+
+    set_panel_enabled is the way back in when the panel itself fails to load:
+    with it off, the gear on the integration page opens the options dialog
+    again, where the panel can be switched back on.
+    """
+    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
+
+    from .const import DOMAIN
+
+    if hass.services.has_service(DOMAIN, "set_panel_enabled"):
+        return
+
+    async def _set_panel_enabled(call) -> None:
+        from . import panel
+
+        enabled = bool(call.data["enabled"])
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "gear_panel": enabled}
+            )
+        await panel.async_sync_panel(hass)
+
+    hass.services.async_register(
+        DOMAIN,
+        "set_panel_enabled",
+        _set_panel_enabled,
+        schema=vol.Schema({vol.Required("enabled"): cv.boolean}),
+    )
+
+
 def _platforms():
     from homeassistant.const import Platform
 
@@ -80,7 +123,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> 
     @callback
     def _on_advertisement(service_info, change) -> None:
         # Keep the transport's BLEDevice/rssi fresh as advertisements arrive.
-        transport.update_ble_device(service_info.device, service_info.rssi)
+        transport.update_ble_device(
+            service_info.device, service_info.rssi, service_info.source
+        )
 
     entry.async_on_unload(
         bluetooth.async_register_callback(
@@ -91,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> 
         )
     )
 
+    await coordinator.async_load_connection_log()
     await coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, _platforms())
 
@@ -109,10 +155,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> 
     # command type just overwrites its handler). NOT guarded by a one-shot flag,
     # so a reload after adding new commands actually registers them.
     async_register_ws(hass)
-    if sidebar_wanted(hass):
-        await panel.async_register_panel(hass)
-    else:
-        panel.async_remove_panel(hass)
+    _register_services(hass)
+    await panel.async_sync_panel(hass)
     # NOTE: intentionally no options-update reload listener. Runtime settings
     # (program, schedule, follow-sun) are persisted via async_update_entry and
     # applied live by the coordinator; reloading on every option change would
@@ -126,6 +170,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) ->
     if unloaded:
         coordinator = entry.runtime_data
         await coordinator.transport.disconnect()
+        await coordinator.async_save_connection_log()
 
         from . import panel
         from .const import DOMAIN
@@ -137,4 +182,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) ->
         ]
         if not remaining:
             panel.async_remove_panel(hass)
+            hass.services.async_remove(DOMAIN, "set_panel_enabled")
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ChihirosConfigEntry) -> None:
+    """Delete the lamp's stored connection log when the lamp is removed."""
+    from homeassistant.helpers.storage import Store
+
+    from .coordinator import CONNECTION_LOG_STORE_VERSION, connection_log_store_key
+
+    await Store(
+        hass, CONNECTION_LOG_STORE_VERSION, connection_log_store_key(entry.entry_id)
+    ).async_remove()

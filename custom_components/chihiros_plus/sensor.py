@@ -60,11 +60,7 @@ SENSORS: tuple[ChihirosSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         device_class=SensorDeviceClass.DURATION,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda d: (
-            round(d.seconds_since_success)
-            if d.connection.value != "connected" and d.seconds_since_success is not None
-            else 0
-        ),
+        value_fn=lambda d: round(d.seconds_unreachable),
     ),
 )
 

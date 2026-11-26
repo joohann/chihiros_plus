@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 
-from homeassistant.components import frontend, panel_custom
+from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
@@ -67,24 +67,59 @@ async def async_register_icons(hass: HomeAssistant) -> None:
     hass.data[_ICONS_KEY] = True
 
 
-async def async_register_panel(hass: HomeAssistant) -> None:
+async def async_sync_panel(hass: HomeAssistant) -> None:
+    """Register, update or remove the shared panel to match the options.
+
+    Two independent choices, each "on" unless every lamp has it off:
+      * ``sidebar``    -> an entry in Home Assistant's sidebar;
+      * ``gear_panel`` -> the gear on the integration page opens this panel
+                          (``config_panel_domain``) instead of the options
+                          dialog. The panel then holds every setting.
+    With both off the panel is removed and the gear opens the options dialog,
+    which is also where both can be switched back on.
+
+    Registered with ``update`` instead of remove-and-add: a panel that
+    disappears makes the frontend jump to the default dashboard, which would
+    happen on every toggle in the settings dialog.
+    """
+    from . import gear_wanted, sidebar_wanted
+
     await async_register_icons(hass)
-    if hass.data.get(_PANEL_KEY) or PANEL_URL_PATH in hass.data.get("frontend_panels", {}):
+    sidebar = sidebar_wanted(hass)
+    gear = gear_wanted(hass)
+    if not sidebar and not gear:
+        async_remove_panel(hass)
         return
     await async_register_static(hass)
     version = await _asset_version(hass)
-    await panel_custom.async_register_panel(
+    state = (sidebar, gear, version)
+    registered = PANEL_URL_PATH in hass.data.get("frontend_panels", {})
+    if registered and hass.data.get(_PANEL_KEY) == state:
+        return
+    frontend.async_register_built_in_panel(
         hass,
-        webcomponent_name="chihiros-panel",
+        component_name="custom",
+        sidebar_title=PANEL_TITLE if sidebar else None,
+        sidebar_icon=PANEL_ICON if sidebar else None,
         frontend_url_path=PANEL_URL_PATH,
-        module_url=f"{FRONTEND_SCRIPT_URL}?v={version}",
-        sidebar_title=PANEL_TITLE,
-        sidebar_icon=PANEL_ICON,
-        embed_iframe=False,
         require_admin=False,
+        config_panel_domain=DOMAIN if gear else None,
+        show_in_sidebar=sidebar,
+        update=registered,
+        config={
+            "_panel_custom": {
+                "name": "chihiros-panel",
+                "module_url": f"{FRONTEND_SCRIPT_URL}?v={version}",
+                "embed_iframe": False,
+                "trust_external": False,
+            }
+        },
     )
-    hass.data[_PANEL_KEY] = True
-    _LOGGER.debug("Chihiros panel registered at /%s (v%s)", PANEL_URL_PATH, version)
+    hass.data[_PANEL_KEY] = state
+    _LOGGER.debug(
+        "Chihiros panel at /%s (v%s, sidebar=%s, gear=%s)",
+        PANEL_URL_PATH, version, sidebar, gear,
+    )
 
 
 @callback

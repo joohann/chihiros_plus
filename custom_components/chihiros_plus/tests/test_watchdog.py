@@ -224,3 +224,46 @@ def test_recovers_once_the_link_answers_again():
     tr.hang_send = False
     assert asyncio.run(wd.execute([_frame()])) is True
     assert wd.status.state is ConnectionState.CONNECTED
+
+
+def test_link_lost_starts_outage_at_the_drop_not_the_last_write():
+    clock = Clock()
+    tr = FakeTransport()
+    wd = _wd(tr, clock)
+    assert asyncio.run(wd.execute([_frame()]))
+    clock.advance(1800)              # idle link: nothing sent for 30 min
+    tr._connected = False            # the proxy closes the link
+    wd.mark_link_lost()
+    assert wd.status.state is ConnectionState.RECONNECTING
+    assert wd.seconds_unreachable() == 0
+    clock.advance(2)
+    assert wd.seconds_unreachable() == 2
+    assert wd.seconds_since_success() == 1802
+
+
+def test_seconds_unreachable_resets_on_reconnect():
+    clock = Clock()
+    tr = FakeTransport()
+    wd = _wd(tr, clock)
+    asyncio.run(wd.execute([_frame()]))
+    tr._connected = False
+    wd.mark_link_lost()
+    clock.advance(1)
+    assert asyncio.run(wd.execute([_frame()]))
+    assert wd.status.state is ConnectionState.CONNECTED
+    assert wd.seconds_unreachable() == 0
+
+
+def test_link_lost_notifications_timed_from_the_drop():
+    clock = Clock()
+    tr = FakeTransport()
+    wd = _wd(tr, clock)
+    asyncio.run(wd.execute([_frame()]))
+    clock.advance(1800)
+    tr._connected = False
+    wd.mark_link_lost()
+    # A 30 min idle period before the drop must not fire the 30 min alarm.
+    assert wd.poll_notification() is None
+    clock.advance(120)
+    event = wd.poll_notification()
+    assert event is not None and event.threshold_seconds == 120

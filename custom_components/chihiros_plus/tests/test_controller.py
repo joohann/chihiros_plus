@@ -107,3 +107,22 @@ def test_forced_resend_restores_output_after_lamp_reset():
     tr.device.channels = [0, 0, 0, 0]          # lamp power-cycled: dark
     asyncio.run(c.apply_rgbw(RGBW(0, 0, 5, 0), force=True))
     assert tr.device.channels == [0, 0, 5, 0]
+
+
+def test_unchanged_target_is_resent_after_the_link_dropped():
+    import asyncio
+
+    from chihiros_plus.controller import LightController
+    from chihiros_plus.protocol import RGBW
+    from chihiros_plus.watchdog import Watchdog
+
+    tr = FakeTransport()
+    ctl = LightController("lamp", Watchdog(tr))
+    assert asyncio.run(ctl.apply_rgbw(RGBW(10, 20, 30, 40)))
+    sent = len(tr.sent_frames)
+    assert asyncio.run(ctl.apply_rgbw(RGBW(10, 20, 30, 40)))
+    assert len(tr.sent_frames) == sent          # deduped while connected
+    tr._connected = False                       # link dropped while idle
+    assert asyncio.run(ctl.apply_rgbw(RGBW(10, 20, 30, 40)))
+    assert tr.connect_calls == 2                # reconnected
+    assert len(tr.sent_frames) > sent           # and re-asserted the output
